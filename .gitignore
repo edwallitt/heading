@@ -24,3 +24,7 @@ pnpm-debug.log*
 # Vite / TS caches
 *.tsbuildinfo
 .vite/
+
+# Raw OurAirports source CSVs (~16 MB) — the committed artifact is the
+# generated JSON, not these. Re-download from https://ourairports.com/data/
+apps/server/data/raw/
