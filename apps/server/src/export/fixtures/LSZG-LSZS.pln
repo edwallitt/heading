@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<SimBase.Document Type="AceXML" version="1,0">
+    <Descr>AceXML Document</Descr>
+    <FlightPlan.FlightPlan>
+        <Title>LSZG to LSZS</Title>
+        <FPType>VFR</FPType>
+        <RouteType>Direct</RouteType>
+        <CruisingAlt>5500</CruisingAlt>
+        <DepartureID>LSZG</DepartureID>
+        <DepartureLLA>N47° 10' 53.76",E7° 25' 1.88",+001411.00</DepartureLLA>
+        <DestinationID>LSZS</DestinationID>
+        <DestinationLLA>N46° 32' 2.76",E9° 53' 2.80",+005600.00</DestinationLLA>
+        <Descr>LSZG to LSZS</Descr>
+        <DepartureName>Grenchen Airfield</DepartureName>
+        <DestinationName>Engadin Airport</DestinationName>
+        <AppVersion>
+            <AppVersionMajor>11</AppVersionMajor>
+            <AppVersionBuild>282174</AppVersionBuild>
+        </AppVersion>
+        <ATCWaypoint id="LSZG">
+            <ATCWaypointType>Airport</ATCWaypointType>
+            <WorldPosition>N47° 10' 53.76",E7° 25' 1.88",+001411.00</WorldPosition>
+            <ICAO>
+                <ICAOIdent>LSZG</ICAOIdent>
+            </ICAO>
+        </ATCWaypoint>
+        <ATCWaypoint id="GVA">
+            <ATCWaypointType>VOR</ATCWaypointType>
+            <WorldPosition>N46° 15' 14.04",E6° 7' 55.99",+005500.00</WorldPosition>
+            <ICAO>
+                <ICAOIdent>GVA</ICAOIdent>
+            </ICAO>
+        </ATCWaypoint>
+        <ATCWaypoint id="WP1">
+            <ATCWaypointType>User</ATCWaypointType>
+            <WorldPosition>N46° 48' 0.00",E8° 30' 0.00",+005500.00</WorldPosition>
+        </ATCWaypoint>
+        <ATCWaypoint id="LSZS">
+            <ATCWaypointType>Airport</ATCWaypointType>
+            <WorldPosition>N46° 32' 2.76",E9° 53' 2.80",+005600.00</WorldPosition>
+            <ICAO>
+                <ICAOIdent>LSZS</ICAOIdent>
+            </ICAO>
+        </ATCWaypoint>
+    </FlightPlan.FlightPlan>
+</SimBase.Document>

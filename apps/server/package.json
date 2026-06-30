@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/router.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -10,14 +13,18 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "build-airports": "tsx scripts/build-airports.ts",
-    "try-brief": "tsx scripts/try-brief.ts"
+    "build-navaids": "tsx scripts/build-navaids.ts",
+    "try-brief": "tsx scripts/try-brief.ts",
+    "generate": "tsx scripts/generate.ts",
+    "export": "tsx scripts/export.ts"
   },
   "dependencies": {
-    "@heading/shared": "workspace:*",
+    "@anthropic-ai/sdk": "^0.107.0",
     "@hono/node-server": "^1.13.7",
     "@hono/trpc-server": "^0.3.4",
     "@trpc/server": "^11.0.0",
-    "hono": "^4.6.12"
+    "hono": "^4.6.12",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

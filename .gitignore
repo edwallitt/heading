@@ -28,3 +28,6 @@ pnpm-debug.log*
 # Raw OurAirports source CSVs (~16 MB) — the committed artifact is the
 # generated JSON, not these. Re-download from https://ourairports.com/data/
 apps/server/data/raw/
+
+# Local .pln output from the export CLI (for loading into MSFS) — not committed.
+apps/server/.out/

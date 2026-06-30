@@ -1,3 +1,47 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-ink text-chalk font-sans antialiased;
+    /* A faint dusk gradient behind the instrument deck — horizon glow, low. */
+    background-image:
+      radial-gradient(120% 80% at 50% -10%, rgba(236, 95, 164, 0.07), transparent 60%),
+      radial-gradient(80% 50% at 50% 108%, rgba(224, 162, 61, 0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* A single, consistent focus ring in the course colour. */
+  :focus-visible {
+    outline: 2px solid theme("colors.course");
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+@layer components {
+  /* Panel placard label — the small uppercase eyebrow over each dial. */
+  .placard {
+    @apply font-instrument text-[0.7rem] font-semibold uppercase tracking-placard text-mute;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

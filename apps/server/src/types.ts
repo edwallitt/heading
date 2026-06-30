@@ -65,6 +65,20 @@ export interface Airport {
 }
 
 /**
+ * Baked enroute navaid (radio beacon), loaded into memory at boot. A compact
+ * row for VFR scenic-waypoint routing — frequency/DME/variation fields are
+ * intentionally omitted (not needed to name a waypoint).
+ */
+export interface Navaid {
+  ident: string;
+  name: string;
+  type: string;
+  lat: number;
+  lon: number;
+  country: string;
+}
+
+/**
  * The five dials (§3). `region: "anywhere"` and `vibe: "any"` mean no filter.
  */
 export interface Brief {
@@ -98,4 +112,49 @@ export interface CandidatePair {
   estBlockMin: number;
   /** Count of requested vibe tags present across both endpoints (soft-rank key). */
   vibeScore: number;
+}
+
+/** One leg of a flight (§8). v1 flights have exactly one. */
+export interface FlightLeg {
+  from_icao: string;
+  to_icao: string;
+  /** Human-readable airport names, for the dispatch card header. */
+  from_name: string;
+  to_name: string;
+  /** Endpoint coordinates, for the route map and fit-bounds. */
+  from_lat: number;
+  from_lon: number;
+  to_lat: number;
+  to_lon: number;
+  dist_nm: number;
+  /** VFR scenic waypoints (validated lat/lon strings); empty = great-circle direct. */
+  waypoints: string[];
+}
+
+/**
+ * A generated, validated flight (§8). Transient — lives in the response, never
+ * persisted. Distances, block time, and cruise level are computed by our libs,
+ * never trusted from the model.
+ */
+export interface Flight {
+  brief: Brief;
+  /** ICAO type designator the LLM/template names (from the aircraft profile). */
+  aircraft_type: string;
+  /** Cruise altitude as a string: feet (VFR, e.g. "7500") or "FLxxx" (IFR). */
+  cruise_level: string;
+  est_block_min: number;
+  rules: Rules;
+  overview: string;
+  why_this: string;
+  legs: FlightLeg[];
+  /** What (if anything) was relaxed, for the honest result-card note. */
+  relaxed: string[];
+  /** "llm" = Opus picked & wrote it; "fallback" = algorithmic pick + template. */
+  source: "llm" | "fallback";
+  /** SimBrief dispatch URL (Phase 3) — present for every flight. */
+  simbrief_url?: string;
+  /** Self-generated MSFS 2024 VFR .pln XML (Phase 3) — VFR only; absent for IFR. */
+  pln?: string;
+  /** Suggested download filename for the .pln, e.g. "LSZG-LSZS.pln" (VFR only). */
+  pln_filename?: string;
 }
