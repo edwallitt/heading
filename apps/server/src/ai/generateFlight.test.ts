@@ -37,6 +37,7 @@ const brief = (over: Partial<Brief> = {}): Brief => ({
   region: "europe",
   vibe: "mountain",
   rules: "VFR",
+  legCount: 1,
   ...over,
 });
 
@@ -60,9 +61,9 @@ function mockClient(responses: string[]): {
   };
 }
 
-const ok = (pairIndex: number, extra: Record<string, unknown> = {}) =>
+const ok = (choiceIndex: number, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
-    pairIndex,
+    choiceIndex,
     overview: "A scenic Alpine hop.",
     why_this: "Mountains both ends.",
     ...extra,
@@ -152,5 +153,46 @@ describe("generateFlight — no-flight + enrichment", () => {
     expect(leg.dist_nm).toBeGreaterThanOrEqual(89);
     expect(leg.dist_nm).toBeLessThanOrEqual(120);
     expect(res.flight.est_block_min).toBeGreaterThan(20); // > turboprop overhead
+  });
+});
+
+describe("generateFlight — multi-leg", () => {
+  // ~416 NM spacing suits turboprop @ 3–5 hr / 2 legs (per-leg band ~354–479 NM).
+  const chainIndex = buildAirportIndex(
+    Array.from({ length: 3 }, (_, i) => ({
+      ident: `US${i}`,
+      name: `US Field ${i}`,
+      type: "medium_airport" as const,
+      iso_country: "XX",
+      region: "europe" as Region,
+      lat: 40 + i * (416 / 60),
+      lon: 0,
+      elev_ft: 0,
+      longest_rwy_ft: 5000,
+      vibe_tags: [] as VibeTag[],
+    })),
+  );
+
+  it("builds a contiguous 2-leg flight; block time is the summed per-leg total", async () => {
+    // No client → algorithmic fallback picks chains[0], exercising multi-leg enrich.
+    const res = await generateFlight(
+      brief({ timeBand: "3-5hr", vibe: "any", legCount: 2 }),
+      { index: chainIndex },
+    );
+
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    const legs = res.flight.legs;
+    expect(legs.length).toBe(2);
+    expect(legs[0]!.to_icao).toBe(legs[1]!.from_icao); // land, then continue
+    const idents = [legs[0]!.from_icao, ...legs.map((l) => l.to_icao)];
+    expect(new Set(idents).size).toBe(3); // no airport revisited
+    expect(legs.every((l) => l.cruise_level.length > 0)).toBe(true); // per-leg cruise
+
+    // Total block = sum of each leg's overhead + cruise (each leg carries overhead).
+    const perLeg = legs.map((l) => 20 + (l.dist_nm / 250) * 60);
+    expect(res.flight.est_block_min).toBe(
+      Math.round(perLeg.reduce((a, b) => a + b, 0)),
+    );
   });
 });

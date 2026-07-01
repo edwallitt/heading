@@ -1,6 +1,6 @@
 import type { Airport, Flight } from "../types.js";
 import { findAirport } from "./airports.js";
-import { resolveWaypoints, type ResolvedWaypoint } from "./waypoints.js";
+import { resolveLegWaypoints, type ResolvedWaypoint } from "./waypoints.js";
 
 /**
  * MSFS 2024 VFR flight-plan (.pln) writer — FSX-derived AceXML, loaded via
@@ -27,20 +27,40 @@ const INDENT = "    "; // 4 spaces per level (FSX-style)
 const APP_VERSION_MAJOR = 11; // conventional MSFS value; MSFS 2024 is lenient here
 const APP_VERSION_BUILD = 282174;
 
-/** Returns the .pln XML for a VFR flight, or null for IFR. */
+/**
+ * Returns the .pln XML for a VFR flight, or null for IFR.
+ *
+ * Multi-leg trips are emitted as a single chained plan: departure = the first
+ * airport, destination = the last, and every intermediate airport is inserted as
+ * an <Airport> ATC waypoint between them (with each leg's scenic waypoints, if
+ * any, threaded in on that leg). NOTE: MSFS treats waypoints of an already-loaded
+ * plan as overfly points, so a multi-stop tour loads as one continuous route
+ * rather than discrete land-and-continue legs — verify in the sim.
+ */
 export function buildVfrPln(flight: Flight): string | null {
   if (flight.rules !== "VFR") return null;
 
-  const leg = flight.legs[0]!;
-  const dep = requireAirport(leg.from_icao);
-  const dest = requireAirport(leg.to_icao);
-  const cruiseFt = Number(flight.cruise_level) || 0;
+  const legs = flight.legs;
+  const first = legs[0];
+  const lastLeg = legs[legs.length - 1];
+  if (!first || !lastLeg) return null;
+
+  const dep = requireAirport(first.from_icao);
+  const dest = requireAirport(lastLeg.to_icao);
+  // One CruisingAlt field for the whole plan — take the highest leg cruise so the
+  // filed altitude clears every leg (per-leg altitudes still drive each waypoint).
+  const planCruiseFt = Math.max(
+    ...legs.map((l) => Number(l.cruise_level) || 0),
+    0,
+  );
 
   const depLLA = worldPosition(dep.lat, dep.lon, dep.elev_ft);
   const destLLA = worldPosition(dest.lat, dest.lon, dest.elev_ft);
-  const title = `${dep.ident} to ${dest.ident}`;
-
-  const waypoints = resolveWaypoints(flight);
+  const stops = flight.legs.map((l) => l.to_icao);
+  const title =
+    legs.length === 1
+      ? `${dep.ident} to ${dest.ident}`
+      : `${dep.ident} to ${dest.ident} via ${stops.slice(0, -1).join(", ")}`;
 
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="UTF-8"?>`);
@@ -51,7 +71,7 @@ export function buildVfrPln(flight: Flight): string | null {
   lines.push(`${i(2)}<Title>${xml(title)}</Title>`);
   lines.push(`${i(2)}<FPType>VFR</FPType>`);
   lines.push(`${i(2)}<RouteType>Direct</RouteType>`); // no airways/procedures
-  lines.push(`${i(2)}<CruisingAlt>${cruiseFt}</CruisingAlt>`);
+  lines.push(`${i(2)}<CruisingAlt>${planCruiseFt}</CruisingAlt>`);
   lines.push(`${i(2)}<DepartureID>${xml(dep.ident)}</DepartureID>`);
   lines.push(`${i(2)}<DepartureLLA>${depLLA}</DepartureLLA>`);
   lines.push(`${i(2)}<DestinationID>${xml(dest.ident)}</DestinationID>`);
@@ -64,9 +84,19 @@ export function buildVfrPln(flight: Flight): string | null {
   lines.push(`${i(3)}<AppVersionBuild>${APP_VERSION_BUILD}</AppVersionBuild>`);
   lines.push(`${i(2)}</AppVersion>`);
 
+  // Departure airport, then for each leg its scenic waypoints followed by the
+  // leg's arrival airport. The final leg's arrival is the destination.
   lines.push(...airportWaypoint(dep, depLLA));
-  for (const wp of waypoints) lines.push(...enrouteWaypoint(wp, cruiseFt));
-  lines.push(...airportWaypoint(dest, destLLA));
+  for (const leg of legs) {
+    const legCruiseFt = Number(leg.cruise_level) || planCruiseFt;
+    for (const wp of resolveLegWaypoints(leg, flight.rules)) {
+      lines.push(...enrouteWaypoint(wp, legCruiseFt));
+    }
+    const arrival = requireAirport(leg.to_icao);
+    lines.push(
+      ...airportWaypoint(arrival, worldPosition(arrival.lat, arrival.lon, arrival.elev_ft)),
+    );
+  }
 
   lines.push(`${i(1)}</FlightPlan.FlightPlan>`);
   lines.push(`</SimBase.Document>`);

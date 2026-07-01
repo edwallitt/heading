@@ -1,0 +1,37 @@
+# Dependencies (reinstalled inside the image)
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build output (rebuilt inside the image)
+dist
+**/dist
+build
+**/build
+*.tsbuildinfo
+.vite
+
+# Secrets — never bake into an image layer. Set ANTHROPIC_API_KEY with
+# `flyctl secrets set` instead; load-env.ts falls back to ambient env.
+.env
+.env.*
+
+# Raw OurAirports CSVs (the committed .generated.json is what's used)
+apps/server/data/raw
+
+# Local export output
+apps/server/.out
+
+# VCS / editor / OS
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
+**/.DS_Store
+*.log
+
+# Fly / Docker meta
+fly.toml
+Dockerfile
+.dockerignore

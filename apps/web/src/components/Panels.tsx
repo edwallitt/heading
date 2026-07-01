@@ -1,4 +1,4 @@
-import { AlertTriangle, Compass, RotateCw } from "lucide-react";
+import { AlertTriangle, Compass, RotateCw, Shuffle } from "lucide-react";
 import { Button } from "./ui.js";
 
 /** A request that failed (network / server error) — recoverable, so offer retry. */
@@ -35,7 +35,13 @@ export function ErrorPanel({
 }
 
 /** A valid but empty outcome — the brief was too tight to fill. Guide, don't alarm. */
-export function NoFlightPanel({ reason }: { reason: string }) {
+export function NoFlightPanel({
+  reason,
+  onSurprise,
+}: {
+  reason: string;
+  onSurprise: () => void;
+}) {
   return (
     <section className="animate-rise-in rounded-xl border border-line bg-panel/60 p-6 text-center shadow-panel">
       <Compass size={28} className="mx-auto text-mute" />
@@ -46,6 +52,11 @@ export function NoFlightPanel({ reason }: { reason: string }) {
       <p className="mt-3 text-xs text-mute">
         Loosen a dial — more time, a wider region, or surprise-me vibe — and dispatch again.
       </p>
+      <div className="mt-4 flex justify-center">
+        <Button variant="secondary" icon={<Shuffle size={15} />} onClick={onSurprise}>
+          Surprise me
+        </Button>
+      </div>
     </section>
   );
 }

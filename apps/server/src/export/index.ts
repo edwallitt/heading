@@ -6,10 +6,11 @@ export { buildSimbriefUrl } from "./simbrief.js";
 export { buildVfrPln } from "./pln.js";
 export { resolveWaypoints, type ResolvedWaypoint } from "./waypoints.js";
 
-/** Suggested .pln download filename, e.g. "LSZG-LSZS.pln". */
+/** Suggested .pln download filename, e.g. "LSZG-LSZS.pln" or "LSZG-LSZS-LIRF.pln". */
 export function plnFilename(flight: Flight): string {
-  const leg = flight.legs[0]!;
-  return `${leg.from_icao}-${leg.to_icao}.pln`;
+  const first = flight.legs[0]!;
+  const idents = [first.from_icao, ...flight.legs.map((l) => l.to_icao)];
+  return `${idents.join("-")}.pln`;
 }
 
 /**

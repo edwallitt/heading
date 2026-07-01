@@ -12,6 +12,7 @@ type Region = Brief["region"];
 type Rules = Brief["rules"];
 type Vibe = Brief["vibe"];
 type Aircraft = Brief["aircraft"];
+type LegCount = NonNullable<Brief["legCount"]>;
 
 export interface DialOption<V extends string> {
   value: V;
@@ -59,6 +60,13 @@ export const AIRCRAFT_OPTIONS: DialOption<Aircraft>[] = [
   { value: "airliner", label: "Airliner" },
 ];
 
+/** Leg-count dial. Values are strings for the dial; the Draft stores the number. */
+export const LEG_OPTIONS: DialOption<`${LegCount}`>[] = [
+  { value: "1", label: "Single hop" },
+  { value: "2", label: "2 legs" },
+  { value: "3", label: "3 legs" },
+];
+
 const TIME_LABEL: Record<TimeBand, string> = Object.fromEntries(
   TIME_OPTIONS.map((o) => [o.value, o.label]),
 ) as Record<TimeBand, string>;
@@ -75,6 +83,15 @@ export function timeDisabledReason(time: TimeBand, aircraft: Aircraft): string {
 /** Why an aircraft is greyed out, given the chosen time band. */
 export function aircraftDisabledReason(aircraft: Aircraft, time: TimeBand): string {
   return `A ${TIME_LABEL[time]} flight is too short for the ${AIRCRAFT_LABEL[aircraft].toLowerCase()}.`;
+}
+
+/** Why a leg count is greyed out, given the chosen time band and aircraft. */
+export function legsDisabledReason(
+  legs: number,
+  time: TimeBand,
+  aircraft: Aircraft,
+): string {
+  return `${legs} legs won’t fit a ${TIME_LABEL[time]} ${AIRCRAFT_LABEL[aircraft].toLowerCase()} trip — each leg needs its own taxi, climb and descent, and they share the one time budget.`;
 }
 
 /** Friendly aircraft-category label for the result card. */

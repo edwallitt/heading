@@ -11,6 +11,13 @@ export interface LlmClient {
 /** Model is locked for Phase 2: one Opus call per generate, no tiering. */
 export const MODEL = "claude-opus-4-8";
 const MAX_TOKENS = 1024;
+/**
+ * Hard ceiling on a single dispatch call. Without it the SDK falls back to
+ * Node's ~120s socket default, so a hung model call would block the tRPC
+ * mutation (and the web spinner) indefinitely. On timeout the SDK throws, which
+ * `generateFlight` turns into its algorithmic fallback.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Real client backed by the Anthropic SDK. The API key is read server-side from
@@ -30,12 +37,15 @@ export function createAnthropicClient(): LlmClient {
         );
       }
       sdk ??= new Anthropic({ apiKey });
-      const message = await sdk.messages.create({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system,
-        messages: [{ role: "user", content: user }],
-      });
+      const message = await sdk.messages.create(
+        {
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          system,
+          messages: [{ role: "user", content: user }],
+        },
+        { timeout: REQUEST_TIMEOUT_MS },
+      );
       return message.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)

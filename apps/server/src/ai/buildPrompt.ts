@@ -1,9 +1,10 @@
 import type { AircraftProfile } from "../data/aircraft.js";
-import type { Brief, CandidatePair, Rules } from "../types.js";
+import type { CandidateChain } from "../lib/candidatePairs.js";
+import type { Brief, Rules } from "../types.js";
 
 export interface BuildPromptInput {
   brief: Brief;
-  pairs: CandidatePair[];
+  chains: CandidateChain[];
   relaxed: string[];
   aircraft: AircraftProfile;
   /** Resolved flight rules (drives whether VFR waypoints are invited). */
@@ -16,14 +17,14 @@ export interface BuildPromptInput {
 
 const SYSTEM = `You are a flight dispatcher for a Microsoft Flight Simulator pilot.
 
-You are given a numbered list of REAL, pre-validated origin→destination pairs. Your job:
-1. Pick the ONE pair that best fits the brief, BY ITS INDEX. You must not invent airports — only choose from the list.
-2. Write a short, evocative overview of the flight (80 words max).
+You are given a numbered list of REAL, pre-validated trips. Each trip is one or more legs; a multi-leg trip is an open chain (A→B→C) where you land at every stop. Your job:
+1. Pick the ONE trip that best fits the brief, BY ITS INDEX. You must not invent airports — only choose from the list.
+2. Write a short, evocative overview of the whole trip (80 words max). For a multi-leg trip, give a sense of the journey across its stops.
 3. Write a one-line reason it fits the brief.
-4. For VFR flights only, you MAY suggest 2–5 scenic waypoints, each a real navaid identifier or a decimal "lat,lon" string.
+4. For a single-leg VFR flight only, you MAY suggest 2–5 scenic waypoints, each a real navaid identifier or a decimal "lat,lon" string. Multi-leg trips fly direct between stops — omit waypoints.
 
 Return JSON ONLY — no prose, no markdown, no code fences — matching exactly:
-{"pairIndex": <number>, "overview": <string>, "why_this": <string>, "waypoints": <string[] | omitted>}
+{"choiceIndex": <number>, "overview": <string>, "why_this": <string>, "waypoints": <string[] | omitted>}
 
 If a soft constraint was relaxed, word the overview honestly (e.g. note that the requested vibe could not be matched).`;
 
@@ -37,18 +38,21 @@ export function buildPrompt(input: BuildPromptInput): {
   system: string;
   user: string;
 } {
-  const { brief, pairs, relaxed, aircraft, rules, excludeRecent, previousError } =
+  const { brief, chains, relaxed, aircraft, rules, excludeRecent, previousError } =
     input;
 
-  const pairLines = pairs
-    .map((p, i) => {
-      const o = p.origin;
-      const d = p.destination;
-      const tags = [...new Set([...o.vibe_tags, ...d.vibe_tags])].join(",") || "—";
+  const chainLines = chains
+    .map((chain, i) => {
+      const route = chain.airports
+        .map((a) => `${a.ident} ${a.name} (${a.iso_country})`)
+        .join(" → ");
+      const perLeg = chain.legs.map((l) => `${Math.round(l.distanceNm)}`).join("+");
+      const tags =
+        [...new Set(chain.airports.flatMap((a) => a.vibe_tags))].join(",") || "—";
+      const legWord = chain.legs.length === 1 ? "leg" : "legs";
       return (
-        `[${i}] ${o.ident} ${o.name} (${o.iso_country}) → ` +
-        `${d.ident} ${d.name} (${d.iso_country}) · ` +
-        `${Math.round(p.distanceNm)} NM · vibe: ${tags}`
+        `[${i}] ${route} · ${chain.legs.length} ${legWord} · ` +
+        `${perLeg} NM (${Math.round(chain.totalDistanceNm)} total) · vibe: ${tags}`
       );
     })
     .join("\n");
@@ -69,16 +73,19 @@ export function buildPrompt(input: BuildPromptInput): {
     ? `Your previous response was rejected: ${previousError}. Return valid JSON matching the schema, with pairIndex in range.`
     : "";
 
+  const legPhrase =
+    brief.legCount === 1 ? "single-leg" : `${brief.legCount}-leg`;
+
   const user = [
-    `Brief: a ${brief.timeBand} ${brief.aircraft.replace("_", " ")} flight in ` +
+    `Brief: a ${legPhrase} ${brief.timeBand} ${brief.aircraft.replace("_", " ")} trip in ` +
       `${brief.region.replace("_", " ")}, ${rules} rules, vibe: ${brief.vibe}.`,
     `Aircraft profile: ${aircraft.simbrief_type}, cruise ${aircraft.cruise_tas} kt, ` +
       `ceiling ${aircraft.ceiling_ft} ft, min runway ${aircraft.min_rwy_ft} ft.`,
     relaxLine,
     excludeLine,
     "",
-    `Candidate pairs (choose by index):`,
-    pairLines,
+    `Candidate trips (choose by index):`,
+    chainLines,
     "",
     retryLine,
   ]

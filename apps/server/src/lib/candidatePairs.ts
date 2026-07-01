@@ -51,7 +51,24 @@ export function candidatePairs(
   // is relaxable — report no relaxation rather than a spurious "widened_region".
   if (!base.distanceBand) return { pairs: [], relaxed: [] };
 
-  // Cumulative relaxation ladder: full → drop vibe → widen region.
+  let lastPairs: CandidatePair[] = [];
+  let lastRelaxed: RelaxationStep[] = [];
+  for (const step of relaxationLadder(base)) {
+    lastPairs = runPipeline(step.constraints, index, opts);
+    lastRelaxed = step.relaxed;
+    if (lastPairs.length >= opts.threshold) break;
+  }
+
+  return { pairs: lastPairs.slice(0, opts.limit), relaxed: lastRelaxed };
+}
+
+/**
+ * Cumulative relaxation ladder: full → drop vibe → widen region. Aircraft, time,
+ * rules, and leg count are never bent. Shared by the pair and chain pipelines.
+ */
+function relaxationLadder(
+  base: ResolvedConstraints,
+): { relaxed: RelaxationStep[]; constraints: ResolvedConstraints }[] {
   const ladder: { relaxed: RelaxationStep[]; constraints: ResolvedConstraints }[] =
     [{ relaxed: [], constraints: base }];
   const applied: RelaxationStep[] = [];
@@ -66,17 +83,159 @@ export function candidatePairs(
     cur = { ...cur, region: "anywhere" };
     ladder.push({ relaxed: [...applied], constraints: cur });
   }
+  return ladder;
+}
 
-  let lastPairs: CandidatePair[] = [];
+/** One hop of a chain, endpoints resolved to full airports for enrichment. */
+export interface ChainLeg {
+  origin: Airport;
+  destination: Airport;
+  distanceNm: number;
+}
+
+/** A scored open chain of `legCount + 1` airports (A→B→C…), no airport repeated. */
+export interface CandidateChain {
+  airports: Airport[];
+  legs: ChainLeg[];
+  totalDistanceNm: number;
+  /** Summed vibe match across all legs (soft-rank key). */
+  vibeScore: number;
+}
+
+export interface CandidateChainResult {
+  chains: CandidateChain[];
+  relaxed: RelaxationStep[];
+}
+
+/**
+ * The multi-leg generalisation of {@link candidatePairs}: builds a pool of open
+ * chains of `brief.legCount` legs (1 → identical to a single pair, wrapped as a
+ * two-airport chain). Each leg is drawn from the SAME per-leg distance band, so
+ * the whole chain fits the total time budget. Seeds come from the pair pipeline;
+ * each seed is greedily extended from its current endpoint, never revisiting an
+ * airport, and dead-end seeds (no legal next hop) are discarded. Relaxes vibe
+ * then region, exactly like the pair pipeline, until enough chains survive.
+ */
+export function candidateChains(
+  brief: Brief,
+  index: AirportIndex,
+  options: Partial<CandidatePairOptions> = {},
+): CandidateChainResult {
+  const opts = { ...DEFAULTS, ...options };
+  const base = resolveBrief(brief);
+  if (!base.distanceBand) return { chains: [], relaxed: [] };
+
+  let lastChains: CandidateChain[] = [];
   let lastRelaxed: RelaxationStep[] = [];
-  for (const step of ladder) {
-    lastPairs = runPipeline(step.constraints, index, opts);
+  for (const step of relaxationLadder(base)) {
+    lastChains = buildChains(step.constraints, index, opts, base.legCount);
     lastRelaxed = step.relaxed;
-    if (lastPairs.length >= opts.threshold) break;
+    if (lastChains.length >= opts.threshold) break;
   }
 
-  return { pairs: lastPairs.slice(0, opts.limit), relaxed: lastRelaxed };
+  return { chains: lastChains.slice(0, opts.limit), relaxed: lastRelaxed };
 }
+
+/** Extend each seed pair into a full chain, then soft-rank the chains. */
+function buildChains(
+  c: ResolvedConstraints,
+  index: AirportIndex,
+  opts: CandidatePairOptions,
+  legCount: number,
+): CandidateChain[] {
+  const seeds = runPipeline(c, index, opts); // ranked, deduped leg-1 pairs
+  const chains: CandidateChain[] = [];
+  for (const seed of seeds) {
+    const chain = extendChain(seed, c, index, legCount);
+    if (chain) chains.push(chain);
+    if (chains.length >= opts.limit) break;
+  }
+
+  // Soft rank: vibe match desc, shorter total first, then idents for determinism.
+  chains.sort(
+    (a, b) =>
+      b.vibeScore - a.vibeScore ||
+      a.totalDistanceNm - b.totalDistanceNm ||
+      a.airports[0]!.ident.localeCompare(b.airports[0]!.ident) ||
+      last(a.airports).ident.localeCompare(last(b.airports).ident),
+  );
+  return chains;
+}
+
+/**
+ * Greedily grow a seed pair to `legCount + 1` airports. From each endpoint, take
+ * the best-ranked reachable destination not already in the chain. Returns null
+ * if a leg dead-ends before the target length (the caller tries the next seed).
+ */
+function extendChain(
+  seed: CandidatePair,
+  c: ResolvedConstraints,
+  index: AirportIndex,
+  legCount: number,
+): CandidateChain | null {
+  const airports: Airport[] = [seed.origin, seed.destination];
+  const legs: ChainLeg[] = [
+    { origin: seed.origin, destination: seed.destination, distanceNm: seed.distanceNm },
+  ];
+  const used = new Set<string>([seed.origin.ident, seed.destination.ident]);
+
+  while (airports.length < legCount + 1) {
+    const from = airports[airports.length - 1]!;
+    const next = rankedDestinations(from, c, index).find(
+      (d) => !used.has(d.destination.ident),
+    );
+    if (!next) return null; // this seed can't reach the requested length
+    used.add(next.destination.ident);
+    airports.push(next.destination);
+    legs.push({ origin: from, destination: next.destination, distanceNm: next.distanceNm });
+  }
+
+  return {
+    airports,
+    legs,
+    totalDistanceNm: legs.reduce((sum, l) => sum + l.distanceNm, 0),
+    vibeScore: legs.reduce(
+      (sum, l) => sum + vibeScore(c.vibeTags, l.origin, l.destination),
+      0,
+    ),
+  };
+}
+
+/** Reachable, constraint-passing destinations from a fixed origin, ranked. */
+function rankedDestinations(
+  origin: Airport,
+  c: ResolvedConstraints,
+  index: AirportIndex,
+): { destination: Airport; distanceNm: number; vibeScore: number }[] {
+  const band = c.distanceBand;
+  if (!band) return [];
+
+  const box = boundingBox(origin, band.maxNm);
+  const out: { destination: Airport; distanceNm: number; vibeScore: number }[] = [];
+  for (const d of index.withinBox(box, c.region)) {
+    if (d.ident === origin.ident) continue;
+    if (d.longest_rwy_ft < c.minRunwayFt) continue;
+    if (
+      c.vibeTags.length > 0 &&
+      !c.vibeTags.some((t) => d.vibe_tags.includes(t))
+    ) {
+      continue;
+    }
+    const dist = greatCircleNm(origin, d);
+    if (dist < band.minNm || dist > band.maxNm) continue;
+    out.push({ destination: d, distanceNm: dist, vibeScore: vibeScore(c.vibeTags, origin, d) });
+  }
+
+  out.sort(
+    (a, b) =>
+      b.vibeScore - a.vibeScore ||
+      a.distanceNm - b.distanceNm ||
+      a.destination.ident.localeCompare(b.destination.ident),
+  );
+  return out;
+}
+
+const last = <T>(arr: T[]): T => arr[arr.length - 1]!;
 
 /** One pass of the hard-filter + distance-band + soft-rank pipeline. */
 function runPipeline(

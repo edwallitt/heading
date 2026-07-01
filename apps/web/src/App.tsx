@@ -1,9 +1,10 @@
 import { Navigation } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { BriefBuilder, type Draft } from "./components/BriefBuilder.js";
+import { BriefBuilder, type Draft, type LegCount } from "./components/BriefBuilder.js";
 import { Dispatching } from "./components/Dispatching.js";
 import { ErrorPanel, NoFlightPanel } from "./components/Panels.js";
 import { ResultCard } from "./components/ResultCard.js";
+import { friendlyError } from "./errors.js";
 import { clearPermalink, readPermalink } from "./permalink.js";
 import type { Brief, Flight, FlightOptions } from "./trpc.js";
 import { trpc } from "./trpc.js";
@@ -12,22 +13,37 @@ const INITIAL_DRAFT: Draft = {
   region: "anywhere",
   rules: "any",
   vibe: "any",
+  legCount: 1,
 };
 
-const RECENT_CAP = 20; // ~10 origin→dest pairs
+const RECENT_CAP = 20; // recent airport idents to avoid repeating
 
 const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)]!;
 
-/** A random but viable brief — never an impossible time×aircraft combo. */
-function randomBrief({ dials, viability }: FlightOptions): Brief {
+/** All airport idents a flight visits, in order (origin + each leg's arrival). */
+function flightEndpoints(legs: Flight["legs"]): string[] {
+  const first = legs[0];
+  if (!first) return [];
+  return [first.from_icao, ...legs.map((l) => l.to_icao)];
+}
+
+/** A random but viable brief — never an impossible time×aircraft×legs combo. */
+function randomBrief({
+  dials,
+  viability,
+  maxLegs,
+}: FlightOptions): Brief & { legCount: LegCount } {
   const aircraft = pick(dials.aircraft);
   const timeBand = pick(dials.timeBand.filter((tb) => viability[aircraft][tb]));
+  const cap = maxLegs[aircraft][timeBand] || 1;
+  const legCount = pick(dials.legCount.filter((n) => n <= cap)) as LegCount;
   return {
     timeBand,
     aircraft,
     region: pick(dials.region),
     rules: pick(dials.rules),
     vibe: pick(dials.vibe),
+    legCount,
   };
 }
 
@@ -44,8 +60,7 @@ export function App() {
   useEffect(() => {
     if (!shared) return;
     submitted.current = shared.brief;
-    const leg = shared.legs[0];
-    if (leg) recent.current = [leg.from_icao, leg.to_icao];
+    recent.current = flightEndpoints(shared.legs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -60,9 +75,8 @@ export function App() {
       {
         onSuccess: (res) => {
           if (res.status !== "ok") return;
-          const leg = res.flight.legs[0];
-          if (!leg) return;
-          const ids = [leg.from_icao, leg.to_icao];
+          const ids = flightEndpoints(res.flight.legs);
+          if (ids.length === 0) return;
           recent.current = [
             ...recent.current.filter((id) => !ids.includes(id)),
             ...ids,
@@ -80,6 +94,7 @@ export function App() {
       region: draft.region,
       rules: draft.rules,
       vibe: draft.vibe,
+      legCount: draft.legCount,
     });
   }
 
@@ -115,7 +130,7 @@ export function App() {
         </div>
       ) : optionsQuery.isError ? (
         <ErrorPanel
-          message={`Couldn't load the brief builder: ${optionsQuery.error.message}`}
+          message={`Couldn't load the brief builder. ${friendlyError(optionsQuery.error)}`}
           onRetry={() => void optionsQuery.refetch()}
           retrying={optionsQuery.isFetching}
         />
@@ -134,9 +149,9 @@ export function App() {
       {generate.isPending ? (
         <Dispatching />
       ) : generate.isError ? (
-        <ErrorPanel message={generate.error.message} onRetry={again} retrying={false} />
+        <ErrorPanel message={friendlyError(generate.error)} onRetry={again} retrying={false} />
       ) : live?.status === "no_flight" ? (
-        <NoFlightPanel reason={live.reason} />
+        <NoFlightPanel reason={live.reason} onSurprise={surprise} />
       ) : live?.status === "ok" ? (
         <ResultCard flight={live.flight} onAgain={again} regenerating={false} isShared={false} />
       ) : shared ? (

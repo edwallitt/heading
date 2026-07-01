@@ -1,5 +1,5 @@
 import { findNavaid } from "../data/navaids.js";
-import type { Flight, LatLon } from "../types.js";
+import type { Flight, FlightLeg, LatLon, Rules } from "../types.js";
 import { findAirport } from "./airports.js";
 
 /** A waypoint resolved for the .pln: a real navaid, or a user lat/lon point. */
@@ -18,9 +18,20 @@ export type ResolvedWaypoint =
  * Non-VFR flights have no self-generated waypoints (IFR routes via SimBrief).
  */
 export function resolveWaypoints(flight: Flight): ResolvedWaypoint[] {
-  if (flight.rules !== "VFR") return [];
+  const leg = flight.legs[0];
+  return leg ? resolveLegWaypoints(leg, flight.rules) : [];
+}
 
-  const leg = flight.legs[0]!;
+/**
+ * Resolve one leg's scenic waypoints. Multi-leg trips fly direct between stops,
+ * so their legs carry no waypoints and this returns an empty list for them.
+ */
+export function resolveLegWaypoints(
+  leg: FlightLeg,
+  rules: Rules,
+): ResolvedWaypoint[] {
+  if (rules !== "VFR") return [];
+
   const dep = findAirport(leg.from_icao);
   const hint: LatLon | undefined = dep ? { lat: dep.lat, lon: dep.lon } : undefined;
 

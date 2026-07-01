@@ -1,14 +1,14 @@
 import type { AircraftProfile } from "../data/aircraft.js";
 import type { AirportIndex } from "../data/airportIndex.js";
-import { candidatePairs } from "../lib/candidatePairs.js";
+import { candidateChains, type CandidateChain } from "../lib/candidatePairs.js";
 import { estBlockMin } from "../lib/blockTime.js";
 import { greatCircleNm } from "../lib/geo.js";
 import { legalVfrAltitude } from "../lib/vfrAltitude.js";
 import { resolveBrief } from "../lib/resolveBrief.js";
 import type {
   Brief,
-  CandidatePair,
   Flight,
+  FlightLeg,
   LatLon,
   Rules,
 } from "../types.js";
@@ -33,7 +33,7 @@ export interface GenerateFlightDeps {
 }
 
 interface Choice {
-  pair: CandidatePair;
+  chain: CandidateChain;
   overview: string;
   why_this: string;
   waypoints: string[];
@@ -51,28 +51,29 @@ export async function generateFlight(
 ): Promise<GenerateFlightResult> {
   const constraints = resolveBrief(brief);
   const index = deps.index ?? (await import("../data/index.js")).airportIndex;
-  const { pairs, relaxed } = candidatePairs(brief, index);
+  const { chains, relaxed } = candidateChains(brief, index);
 
-  if (pairs.length === 0) {
-    // Should be rare (e.g. impossible budget). Never call the model.
+  if (chains.length === 0) {
+    // Should be rare (e.g. impossible budget, or a leg count too high to chain).
+    // Never call the model.
     const reason =
       constraints.distanceBand === null
-        ? "Time budget is at or below the aircraft's fixed overhead — no leg is reachable."
-        : "No candidate airport pairs matched the brief, even after relaxation.";
+        ? `Time budget is too small for ${brief.legCount} ${brief.legCount === 1 ? "leg" : "legs"} — the aircraft's overhead consumes it.`
+        : "No candidate trips matched the brief, even after relaxation.";
     return { status: "no_flight", reason };
   }
 
   const choice = deps.client
     ? await chooseWithLlm(
         brief,
-        pairs,
+        chains,
         relaxed,
         constraints.aircraft,
         constraints.rules,
         deps.client,
         deps.excludeRecent ?? [],
       )
-    : fallbackChoice(pairs);
+    : fallbackChoice(chains);
 
   return {
     status: "ok",
@@ -83,7 +84,7 @@ export async function generateFlight(
 /** Up to two model attempts; the second is fed the first's validation error. */
 async function chooseWithLlm(
   brief: Brief,
-  pairs: CandidatePair[],
+  chains: CandidateChain[],
   relaxed: string[],
   aircraft: AircraftProfile,
   rules: Rules,
@@ -96,7 +97,7 @@ async function chooseWithLlm(
     try {
       const { system, user } = buildPrompt({
         brief,
-        pairs,
+        chains,
         relaxed,
         aircraft,
         rules,
@@ -104,9 +105,9 @@ async function chooseWithLlm(
         previousError,
       });
       const raw = await client.complete({ system, user });
-      const parsed = parseModelOutput(raw, pairs.length);
+      const parsed = parseModelOutput(raw, chains.length);
       return {
-        pair: pairs[parsed.pairIndex]!,
+        chain: chains[parsed.choiceIndex]!,
         overview: parsed.overview.trim(),
         why_this: parsed.why_this.trim(),
         waypoints: parsed.waypoints ?? [],
@@ -118,15 +119,15 @@ async function chooseWithLlm(
   }
 
   // Both attempts failed → algorithmic fallback from the validated pool.
-  return fallbackChoice(pairs);
+  return fallbackChoice(chains);
 }
 
 /** Parse + validate the model's JSON; throws on bad shape or out-of-range index. */
-function parseModelOutput(raw: string, pairCount: number) {
+function parseModelOutput(raw: string, choiceCount: number) {
   const parsed = modelOutputSchema.parse(JSON.parse(extractJson(raw)));
-  if (parsed.pairIndex >= pairCount) {
+  if (parsed.choiceIndex >= choiceCount) {
     throw new Error(
-      `pairIndex ${parsed.pairIndex} is out of range (0..${pairCount - 1}).`,
+      `choiceIndex ${parsed.choiceIndex} is out of range (0..${choiceCount - 1}).`,
     );
   }
   return parsed;
@@ -150,10 +151,10 @@ function extractJson(raw: string): string {
   return stripped.slice(start, end + 1);
 }
 
-/** Algorithmic pick: the top-ranked pair, prose templated in `enrich`. */
-function fallbackChoice(pairs: CandidatePair[]): Choice {
+/** Algorithmic pick: the top-ranked chain, prose templated in `enrich`. */
+function fallbackChoice(chains: CandidateChain[]): Choice {
   return {
-    pair: pairs[0]!,
+    chain: chains[0]!,
     overview: "",
     why_this: "",
     waypoints: [],
@@ -161,7 +162,14 @@ function fallbackChoice(pairs: CandidatePair[]): Choice {
   };
 }
 
-/** Authoritative enrichment — all numbers come from our libs, not the model. */
+/**
+ * Authoritative enrichment — all numbers come from our libs, not the model.
+ * Builds one FlightLeg per hop in the chosen chain. Distance, block time, and
+ * cruise level are computed per leg (VFR altitude is track-dependent); the
+ * flight's `est_block_min` is the sum across legs (each carries the aircraft's
+ * overhead), and the top-level `cruise_level` mirrors the first leg for the
+ * single-line readout.
+ */
 function enrich(
   brief: Brief,
   aircraft: AircraftProfile,
@@ -169,17 +177,41 @@ function enrich(
   choice: Choice,
   relaxed: string[],
 ): Flight {
-  const o = choice.pair.origin;
-  const d = choice.pair.destination;
-  const distNm = Math.round(greatCircleNm(o, d));
-  const blockMin = Math.round(estBlockMin(distNm, aircraft));
-  const track = initialBearingDeg(o, d);
-  const cruiseLevel = cruiseLevelFor(rules, aircraft, distNm, track);
-  const waypoints = validateWaypoints(choice.waypoints, rules);
+  const chainLegs = choice.chain.legs;
+  const singleLeg = chainLegs.length === 1;
+
+  const legs: FlightLeg[] = chainLegs.map((leg) => {
+    const o = leg.origin;
+    const d = leg.destination;
+    const distNm = Math.round(greatCircleNm(o, d));
+    const track = initialBearingDeg(o, d);
+    return {
+      from_icao: o.ident,
+      to_icao: d.ident,
+      from_name: o.name,
+      to_name: d.name,
+      from_lat: o.lat,
+      from_lon: o.lon,
+      to_lat: d.lat,
+      to_lon: d.lon,
+      dist_nm: distNm,
+      cruise_level: cruiseLevelFor(rules, aircraft, distNm, track),
+      // Scenic waypoints are single-leg only; multi-leg hops fly direct.
+      waypoints: singleLeg ? validateWaypoints(choice.waypoints, rules) : [],
+    };
+  });
+
+  const blockMin = Math.round(
+    legs.reduce((sum, leg) => sum + estBlockMin(leg.dist_nm, aircraft), 0),
+  );
+  const totalNm = legs.reduce((sum, leg) => sum + leg.dist_nm, 0);
+  const route = choice.chain.airports.map((a) => a.ident).join(" → ");
 
   const overview =
     choice.source === "fallback"
-      ? `A ${distNm} NM ${rules} hop from ${o.name} (${o.ident}) to ${d.name} (${d.ident}).`
+      ? singleLeg
+        ? `A ${totalNm} NM ${rules} hop from ${legs[0]!.from_name} (${legs[0]!.from_icao}) to ${legs[0]!.to_name} (${legs[0]!.to_icao}).`
+        : `A ${legs.length}-leg ${rules} trip — ${route} — ${totalNm} NM in total.`
       : choice.overview;
   const why_this =
     choice.source === "fallback"
@@ -189,25 +221,12 @@ function enrich(
   return {
     brief,
     aircraft_type: aircraft.simbrief_type,
-    cruise_level: cruiseLevel,
+    cruise_level: legs[0]!.cruise_level,
     est_block_min: blockMin,
     rules,
     overview,
     why_this,
-    legs: [
-      {
-        from_icao: o.ident,
-        to_icao: d.ident,
-        from_name: o.name,
-        to_name: d.name,
-        from_lat: o.lat,
-        from_lon: o.lon,
-        to_lat: d.lat,
-        to_lon: d.lon,
-        dist_nm: distNm,
-        waypoints,
-      },
-    ],
+    legs,
     relaxed,
     source: choice.source,
   };

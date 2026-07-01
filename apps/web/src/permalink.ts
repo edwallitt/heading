@@ -65,17 +65,25 @@ export function clearPermalink(): void {
 function isFlightLike(v: unknown): v is Flight {
   if (!v || typeof v !== "object") return false;
   const f = v as Record<string, unknown>;
+  if (
+    typeof f.overview !== "string" ||
+    typeof f.why_this !== "string" ||
+    typeof f.rules !== "string"
+  ) {
+    return false;
+  }
   if (!Array.isArray(f.legs) || f.legs.length === 0) return false;
-  const leg = f.legs[0] as Record<string, unknown>;
-  return (
-    typeof f.overview === "string" &&
-    typeof f.why_this === "string" &&
-    typeof f.rules === "string" &&
-    typeof leg.from_icao === "string" &&
-    typeof leg.to_icao === "string" &&
-    typeof leg.from_lat === "number" &&
-    typeof leg.from_lon === "number" &&
-    typeof leg.to_lat === "number" &&
-    typeof leg.to_lon === "number"
-  );
+  // Every leg must carry drawable endpoints — a multi-leg link is only as valid
+  // as its weakest hop.
+  return f.legs.every((raw) => {
+    const leg = raw as Record<string, unknown>;
+    return (
+      typeof leg.from_icao === "string" &&
+      typeof leg.to_icao === "string" &&
+      typeof leg.from_lat === "number" &&
+      typeof leg.from_lon === "number" &&
+      typeof leg.to_lat === "number" &&
+      typeof leg.to_lon === "number"
+    );
+  });
 }

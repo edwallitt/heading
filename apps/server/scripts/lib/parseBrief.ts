@@ -5,6 +5,7 @@
 import type {
   AircraftCategory,
   Brief,
+  LegCount,
   Region,
   Rules,
   TimeBand,
@@ -91,21 +92,25 @@ function lookup<T>(map: Record<string, T>, raw: string, kind: string): T {
   return value;
 }
 
-/** Parse "aircraft,time,region,vibe,rules" into a Brief. Throws on bad input. */
+/**
+ * Parse "aircraft,time,region,vibe,rules[,legCount]" into a Brief. The legCount
+ * field is optional (defaults to 1). Throws on bad input.
+ */
 export function parseBrief(input: string): Brief {
   const parts = input.split(",").map((p) => p.trim());
-  if (parts.length !== 5) {
+  if (parts.length !== 5 && parts.length !== 6) {
     throw new Error(
-      `Expected 5 comma-separated fields (aircraft,time,region,vibe,rules), ` +
+      `Expected 5 or 6 comma-separated fields (aircraft,time,region,vibe,rules[,legCount]), ` +
         `got ${parts.length}: "${input}"`,
     );
   }
-  const [aircraft, time, region, vibe, rules] = parts as [
+  const [aircraft, time, region, vibe, rules, legCount] = parts as [
     string,
     string,
     string,
     string,
     string,
+    string?,
   ];
   return {
     aircraft: lookup(AIRCRAFT_ALIASES, aircraft, "aircraft"),
@@ -113,5 +118,14 @@ export function parseBrief(input: string): Brief {
     region: lookup(REGION_ALIASES, region, "region"),
     vibe: lookup(VIBE_ALIASES, vibe, "vibe"),
     rules: lookup(RULES_ALIASES, rules, "rules"),
+    legCount: parseLegCount(legCount),
   };
+}
+
+/** Parse an optional leg-count field (1–3); defaults to 1 when omitted. */
+function parseLegCount(raw: string | undefined): LegCount {
+  if (raw === undefined || raw === "") return 1;
+  const n = Number(raw);
+  if (n === 1 || n === 2 || n === 3) return n;
+  throw new Error(`Unrecognised legCount: "${raw}". Valid: 1, 2, 3`);
 }

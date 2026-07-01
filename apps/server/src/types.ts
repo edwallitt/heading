@@ -78,8 +78,13 @@ export interface Navaid {
   country: string;
 }
 
+/** Number of legs in a trip: 1 (a single hop) to 3 (an open chain A→B→C). */
+export type LegCount = 1 | 2 | 3;
+
 /**
- * The five dials (§3). `region: "anywhere"` and `vibe: "any"` mean no filter.
+ * The six dials (§3). `region: "anywhere"` and `vibe: "any"` mean no filter.
+ * `legCount` &gt; 1 requests an open multi-stop chain; the time budget is spread
+ * across all legs (each leg carries the aircraft's fixed overhead).
  */
 export interface Brief {
   timeBand: TimeBand;
@@ -87,6 +92,7 @@ export interface Brief {
   rules: Rules | "any";
   vibe: VibeTag | "any";
   aircraft: AircraftCategory;
+  legCount: LegCount;
 }
 
 /** A geographic bounding box (degrees). `lonWraps` flags antimeridian crossing. */
@@ -114,7 +120,7 @@ export interface CandidatePair {
   vibeScore: number;
 }
 
-/** One leg of a flight (§8). v1 flights have exactly one. */
+/** One leg of a flight (§8). A flight has one leg per hop (1–3). */
 export interface FlightLeg {
   from_icao: string;
   to_icao: string;
@@ -127,6 +133,12 @@ export interface FlightLeg {
   to_lat: number;
   to_lon: number;
   dist_nm: number;
+  /**
+   * Cruise altitude for THIS leg: feet (VFR, e.g. "7500") or "FLxxx" (IFR).
+   * Per-leg because the VFR hemispheric rule is track-dependent — an eastbound
+   * and a westbound leg of the same trip take different legal altitudes.
+   */
+  cruise_level: string;
   /** VFR scenic waypoints (validated lat/lon strings); empty = great-circle direct. */
   waypoints: string[];
 }

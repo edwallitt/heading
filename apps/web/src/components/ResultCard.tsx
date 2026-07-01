@@ -1,5 +1,5 @@
 import { Check, Download, ExternalLink, Info, Link2, RotateCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { aircraftLabel } from "../dials.js";
 import { buildPermalink } from "../permalink.js";
 import type { Flight } from "../trpc.js";
@@ -46,7 +46,16 @@ interface ResultCardProps {
 }
 
 export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCardProps) {
-  const leg = flight.legs[0];
+  const legs = flight.legs;
+  const leg = legs[0];
+  const singleLeg = legs.length === 1;
+  // Origin, then each leg's arrival — the ordered stops of the trip.
+  const stops = leg
+    ? [
+        { icao: leg.from_icao, name: leg.from_name },
+        ...legs.map((l) => ({ icao: l.to_icao, name: l.to_name })),
+      ]
+    : [];
   const isVfr = flight.rules === "VFR";
   const canDownload = isVfr && Boolean(flight.pln && flight.pln_filename);
   const [copied, setCopied] = useState(false);
@@ -79,21 +88,57 @@ export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCa
       <div className="flex flex-col gap-6 p-5 sm:p-7">
         {leg ? (
           <header className="flex flex-col gap-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-instrument text-3xl font-semibold tracking-wide text-chalk sm:text-4xl">
-                  {leg.from_icao}
+            {singleLeg ? (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-instrument text-3xl font-semibold tracking-wide text-chalk sm:text-4xl">
+                    {leg.from_icao}
+                  </div>
+                  <div className="mt-0.5 truncate text-sm text-mute">{leg.from_name}</div>
                 </div>
-                <div className="mt-0.5 truncate text-sm text-mute">{leg.from_name}</div>
-              </div>
-              <div className="min-w-0 text-right">
-                <div className="font-instrument text-3xl font-semibold tracking-wide text-chalk sm:text-4xl">
-                  {leg.to_icao}
+                <div className="min-w-0 text-right">
+                  <div className="font-instrument text-3xl font-semibold tracking-wide text-chalk sm:text-4xl">
+                    {leg.to_icao}
+                  </div>
+                  <div className="mt-0.5 truncate text-sm text-mute">{leg.to_name}</div>
                 </div>
-                <div className="mt-0.5 truncate text-sm text-mute">{leg.to_name}</div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
+                {stops.map((s, idx) => (
+                  <Fragment key={`${s.icao}-${idx}`}>
+                    <div className="min-w-0">
+                      <div className="font-instrument text-2xl font-semibold tracking-wide text-chalk sm:text-3xl">
+                        {s.icao}
+                      </div>
+                      <div className="mt-0.5 max-w-[7.5rem] truncate text-xs text-mute">{s.name}</div>
+                    </div>
+                    {idx < stops.length - 1 ? (
+                      <span aria-hidden className="pt-1.5 text-xl text-course/70">→</span>
+                    ) : null}
+                  </Fragment>
+                ))}
+              </div>
+            )}
             <RouteMap flight={flight} />
+            {!singleLeg ? (
+              <div className="divide-y divide-line overflow-hidden rounded-lg border border-line text-sm">
+                {legs.map((l, idx) => (
+                  <div
+                    key={`${l.from_icao}-${l.to_icao}-${idx}`}
+                    className="flex items-center justify-between gap-3 px-3.5 py-2"
+                  >
+                    <span className="font-instrument tracking-wide text-chalk">
+                      <span className="text-mute">{idx + 1}.</span> {l.from_icao}{" "}
+                      <span className="text-course/70">→</span> {l.to_icao}
+                    </span>
+                    <span className="tabular-nums text-mute">
+                      {l.dist_nm.toLocaleString()} NM · {formatCruise(l.cruise_level)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </header>
         ) : null}
 
@@ -164,6 +209,11 @@ export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCa
           ) : isShared && !canDownload ? (
             <p className="text-xs leading-relaxed text-mute">
               The .pln isn't carried in shared links — open SimBrief, or regenerate to download it.
+            </p>
+          ) : !singleLeg && canDownload ? (
+            <p className="text-xs leading-relaxed text-mute">
+              The multi-leg .pln is one chained plan — intermediate airports load as
+              route waypoints, so double-check it flies as separate stops in MSFS 2024.
             </p>
           ) : null}
 

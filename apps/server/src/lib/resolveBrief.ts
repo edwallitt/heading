@@ -17,7 +17,10 @@ import { distanceBand } from "./blockTime.js";
  */
 export interface ResolvedConstraints {
   aircraft: AircraftProfile;
+  /** Per-leg reachable distance band (the total budget divided across legs). */
   distanceBand: DistanceBand | null;
+  /** How many legs the trip should have (1–3). */
+  legCount: number;
   minRunwayFt: number;
   ceilingFt: number;
   rules: Rules;
@@ -33,7 +36,10 @@ export function resolveBrief(brief: Brief): ResolvedConstraints {
 
   return {
     aircraft,
-    distanceBand: distanceBand(minutes, aircraft),
+    // Per-leg band: the seed leg and every extension leg share the same band, so
+    // a multi-leg chain fits the total budget instead of N full-budget legs.
+    distanceBand: distanceBand(minutes, aircraft, brief.legCount),
+    legCount: brief.legCount,
     minRunwayFt: aircraft.min_rwy_ft,
     ceilingFt: aircraft.ceiling_ft,
     // "any" defers to the category default; otherwise the explicit choice holds.

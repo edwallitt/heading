@@ -1,11 +1,13 @@
 import { Plane, Shuffle } from "lucide-react";
 import {
   AIRCRAFT_OPTIONS,
+  LEG_OPTIONS,
   REGION_OPTIONS,
   RULES_OPTIONS,
   TIME_OPTIONS,
   VIBE_OPTIONS,
   aircraftDisabledReason,
+  legsDisabledReason,
   timeDisabledReason,
   type DialOption,
 } from "../dials.js";
@@ -13,12 +15,16 @@ import type { Brief, FlightOptions } from "../trpc.js";
 import { SegmentedDial, type DialItem } from "./SegmentedDial.js";
 import { Button } from "./ui.js";
 
+/** Leg count is always concrete in the draft (defaults to a single hop). */
+export type LegCount = NonNullable<Brief["legCount"]>;
+
 export interface Draft {
   timeBand?: Brief["timeBand"];
   aircraft?: Brief["aircraft"];
   region: Brief["region"];
   rules: Brief["rules"];
   vibe: Brief["vibe"];
+  legCount: LegCount;
 }
 
 interface BriefBuilderProps {
@@ -48,7 +54,7 @@ export function BriefBuilder({
   canGenerate,
   isPending,
 }: BriefBuilderProps) {
-  const { dials, viability } = options;
+  const { dials, viability, maxLegs } = options;
 
   const timeItems: DialItem<Brief["timeBand"]>[] = present(
     TIME_OPTIONS,
@@ -78,6 +84,29 @@ export function BriefBuilder({
     };
   });
 
+  // Legs greys out only once time AND aircraft are chosen (max legs depends on
+  // both). Picking legs first leaves them all enabled; the server's no-flight
+  // path catches any combination that still can't be filled.
+  const legItems: DialItem<`${LegCount}`>[] = present(
+    LEG_OPTIONS,
+    dials.legCount.map(String),
+  ).map((o) => {
+    const n = Number(o.value);
+    const capped =
+      draft.timeBand && draft.aircraft
+        ? maxLegs[draft.aircraft][draft.timeBand]
+        : undefined;
+    const disabled = capped !== undefined && n > capped;
+    return {
+      ...o,
+      disabled,
+      reason:
+        disabled && draft.timeBand && draft.aircraft
+          ? legsDisabledReason(n, draft.timeBand, draft.aircraft)
+          : undefined,
+    };
+  });
+
   return (
     <section className="rounded-xl border border-line bg-panel/60 shadow-panel backdrop-blur-sm">
       <div className="flex flex-col gap-7 p-5 sm:p-7">
@@ -92,6 +121,12 @@ export function BriefBuilder({
           items={aircraftItems}
           value={draft.aircraft}
           onChange={(v) => onChange({ aircraft: v })}
+        />
+        <SegmentedDial
+          placard="Legs"
+          items={legItems}
+          value={`${draft.legCount}` as `${LegCount}`}
+          onChange={(v) => onChange({ legCount: Number(v) as LegCount })}
         />
         <div className="h-px bg-line" />
         <SegmentedDial

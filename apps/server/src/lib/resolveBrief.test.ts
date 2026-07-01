@@ -8,6 +8,7 @@ const base: Brief = {
   region: "europe",
   vibe: "any",
   rules: "any",
+  legCount: 1,
 };
 
 describe("resolveBrief", () => {

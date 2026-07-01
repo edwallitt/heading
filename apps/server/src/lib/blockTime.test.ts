@@ -33,6 +33,25 @@ describe("distanceBand", () => {
     expect(band!.maxNm).toBe(airliner.range_nm);
     expect(band!.minNm).toBeLessThan(airliner.range_nm);
   });
+
+  it("divides the total budget across legs (shorter per-leg band for more legs)", () => {
+    // Same total budget, more legs → each leg's centre shrinks: (240−N·20)/N.
+    const one = distanceBand(240, turboprop, 1)!;
+    const two = distanceBand(240, turboprop, 2)!;
+    const three = distanceBand(240, turboprop, 3)!;
+    const centre = (n: number) => ((240 - n * 20) / n / 60) * 250;
+    expect(one.maxNm).toBeGreaterThan(two.maxNm);
+    expect(two.maxNm).toBeGreaterThan(three.maxNm);
+    expect(two.minNm).toBeCloseTo(centre(2) * (1 - BAND_TOLERANCE), 2);
+  });
+
+  it("returns null when the budget can't fit the requested legs", () => {
+    // Airliner overhead alone eats a 45-min budget once split across 2 legs.
+    expect(distanceBand(45, airliner, 2)).toBeNull();
+    // And an inverted band (floor ≥ ceiling after dividing) is also null, not a
+    // silently-empty band: turboprop @ 45 min over 3 legs.
+    expect(distanceBand(45, turboprop, 3)).toBeNull();
+  });
 });
 
 describe("estBlockMin", () => {

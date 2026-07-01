@@ -15,41 +15,51 @@ a turboprop, where should I actually go?"* — without the paralysis of a blank 
 
 ## How it works
 
-You set five dials. The backend turns them into hard constraints, builds a pool
-of **real, pre-validated** airport pairs from baked OurAirports data, and asks
-Claude **Opus** to pick the one that best fits and write the briefing. Every
-number you see — distance, block time, cruise level — is computed by the app's
-own libraries, never trusted from the model. The result is enriched with a
-SimBrief dispatch URL and, for VFR, a self-generated MSFS 2024 flight plan.
+You set six dials. The backend turns them into hard constraints, builds a pool
+of **real, pre-validated** airport chains (one hop, or an open A→B→C tour) from
+baked OurAirports data, and asks Claude **Opus** to pick the one that best fits
+and write the briefing. Every number you see — distance, block time, cruise level
+— is computed by the app's own libraries, never trusted from the model. The
+result is enriched with a SimBrief dispatch URL and, for VFR, a self-generated
+MSFS 2024 flight plan.
 
 ```
-five dials ─▶ constraints ─▶ candidate pool ─▶ Opus picks + writes ─▶ enrich ─▶ exports
-              (distance,      (real airports,   (one call, one        (our math)  (SimBrief
-               runway,         soft-ranked by    retry, then                       URL + VFR
-               rules…)         vibe)             algorithmic fallback)             .pln)
+six dials ─▶ constraints ─▶ candidate pool ─▶ Opus picks + writes ─▶ enrich ─▶ exports
+             (per-leg        (real chains,     (one call, one        (our math)  (SimBrief
+              distance,       soft-ranked by    retry, then                       URL + VFR
+              runway, rules…) vibe)             algorithmic fallback)             .pln)
 ```
 
-### The five dials
+### The six dials
 
 | Dial | Options |
 | --- | --- |
 | **Time available** | 20 min · 45 min · 1 hr · 2 hr · 3–5 hr · long haul |
 | **Aircraft** | small prop · turboprop · regional jet · airliner |
+| **Legs** | single hop · 2 legs · 3 legs |
 | **Region** | anywhere · N./S. America · Europe · Asia · Oceania · Caribbean |
 | **Flight rules** | any · VFR · IFR |
 | **Vibe** | mountains · coastal · city skylines · surprise me |
 
+Pick **2 or 3 legs** for an open chain (A→B→C) — a multi-stop tour where you land
+at every stop. The time budget is shared across the whole trip, so each leg is
+shorter (and each carries its own taxi/climb/descent overhead).
+
 Incompatible combinations grey out live as you pick (an airliner can't fit a
-20-minute flight) — the narrowing rules come from the server, never hardcoded in
-the UI.
+20-minute flight; three legs won't fit a short budget) — the narrowing rules come
+from the server, never hardcoded in the UI.
 
 ### Features
 
 - **Brief builder** with live progressive narrowing and large, touch-friendly controls.
-- **Hero result card** — origin → destination, the briefing prose, the one-line
-  *why*, cruise level, block time, rules and aircraft as instrument readouts.
+- **Single or multi-leg** — a single hop, or an open 2–3 leg chain (A→B→C) with a
+  per-leg breakdown (distance and cruise altitude for each hop).
+- **Hero result card** — the route (origin → destination, or the full chain), the
+  briefing prose, the one-line *why*, cruise level, block time, rules and aircraft
+  as instrument readouts.
 - **Route map** (MapLibre GL on OpenFreeMap's dark style) drawn as instrumentation:
-  a magenta course line with a heading dart, fit to the route.
+  a magenta course line with a heading dart on each leg, every stop labelled, fit
+  to the route.
 - **Open in SimBrief** and, for VFR, **Download `.pln`** (loads in MSFS 2024).
 - **Shareable permalink** — the whole flight encoded into the URL. Paste a link
   and it reproduces the exact card, map and all, with no new AI call.

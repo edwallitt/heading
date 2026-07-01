@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildAirportIndex } from "../data/airportIndex.js";
 import type { Airport, Brief, Region, VibeTag } from "../types.js";
-import { candidatePairs } from "./candidatePairs.js";
+import { candidateChains, candidatePairs } from "./candidatePairs.js";
 
 /**
  * A line of airports along a meridian, each ~100 NM apart (1° lat ≈ 60 NM).
@@ -38,6 +38,7 @@ const brief = (over: Partial<Brief>): Brief => ({
   region: "europe",
   vibe: "any",
   rules: "VFR",
+  legCount: 1,
   ...over,
 });
 
@@ -115,5 +116,74 @@ describe("candidatePairs soft ranking", () => {
     expect(result.pairs[0]!.vibeScore).toBe(2); // AAAA↔BBBB, both mountain
     const top = [result.pairs[0]!.origin.ident, result.pairs[0]!.destination.ident];
     expect(top.sort()).toEqual(["AAAA", "BBBB"]);
+  });
+});
+
+/**
+ * A meridian line spaced `stepNm` apart. For turboprop @ 3–5 hr the per-leg band
+ * is ~354–479 NM (legCount 2) / ~212–287 NM (legCount 3), so a ~416 NM step lets
+ * adjacent airports chain two legs but not three (a 3rd hop would exceed range of
+ * the shorter 3-leg band from these positions).
+ */
+function spacedLine(prefix: string, count: number, stepNm: number): Airport[] {
+  const stepDeg = stepNm / 60;
+  return Array.from({ length: count }, (_, i) => ({
+    ident: `${prefix}${i}`,
+    name: `${prefix} ${i}`,
+    type: "medium_airport",
+    iso_country: "XX",
+    region: "europe" as Region,
+    lat: 40 + i * stepDeg,
+    lon: 0,
+    elev_ft: 0,
+    longest_rwy_ft: 5000,
+    vibe_tags: [] as VibeTag[],
+  }));
+}
+
+describe("candidateChains", () => {
+  it("legCount=1 mirrors candidatePairs (each chain is one two-airport leg)", () => {
+    const index = buildAirportIndex(line("EU", "europe", 4));
+    const b = brief({ vibe: "any", legCount: 1 });
+    const { chains } = candidateChains(b, index);
+    const { pairs } = candidatePairs(b, index);
+
+    expect(chains.length).toBe(pairs.length);
+    for (const chain of chains) {
+      expect(chain.airports.length).toBe(2);
+      expect(chain.legs.length).toBe(1);
+    }
+  });
+
+  it("legCount=2 builds open 3-airport chains with no airport repeated", () => {
+    const index = buildAirportIndex(spacedLine("EU", 3, 416));
+    const { chains } = candidateChains(
+      brief({ timeBand: "3-5hr", vibe: "any", legCount: 2 }),
+      index,
+    );
+
+    expect(chains.length).toBeGreaterThan(0);
+    for (const chain of chains) {
+      expect(chain.airports.length).toBe(3);
+      expect(chain.legs.length).toBe(2);
+      const idents = chain.airports.map((a) => a.ident);
+      expect(new Set(idents).size).toBe(3); // no revisits
+      // legs are contiguous: each leg starts where the previous ended
+      expect(chain.legs[0]!.destination.ident).toBe(chain.legs[1]!.origin.ident);
+      expect(chain.totalDistanceNm).toBeCloseTo(
+        chain.legs[0]!.distanceNm + chain.legs[1]!.distanceNm,
+        6,
+      );
+    }
+  });
+
+  it("returns no chains when the leg count can't be reached from the pool", () => {
+    // Only two airports → a 3-leg chain (4 airports) is impossible.
+    const index = buildAirportIndex(spacedLine("EU", 2, 416));
+    const { chains } = candidateChains(
+      brief({ timeBand: "3-5hr", vibe: "any", legCount: 3 }),
+      index,
+    );
+    expect(chains.length).toBe(0);
   });
 });
