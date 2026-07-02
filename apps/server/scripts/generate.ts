@@ -13,6 +13,7 @@ import {
   generateFlight,
   type GenerateFlightResult,
 } from "../src/ai/generateFlight.js";
+import { createAwcWeatherProvider } from "../src/weather/metar.js";
 import { parseBrief } from "./lib/parseBrief.js";
 
 function printResult(input: string, result: GenerateFlightResult): void {
@@ -38,6 +39,17 @@ function printResult(input: string, result: GenerateFlightResult): void {
   if (leg.waypoints.length > 0) {
     console.log(`  waypoints: ${leg.waypoints.join("  ")}`);
   }
+  for (const w of f.weather ?? []) {
+    console.log(`  wx ${w.icao}: ${w.category}  ${w.raw}`);
+  }
+  if (f.golden_hour) {
+    const hhmm = (iso: string) => `${iso.slice(11, 16)}Z`;
+    console.log(
+      `  golden hour: depart ${hhmm(f.golden_hour.depart_utc)} → ` +
+        `arrive ${hhmm(f.golden_hour.arrive_utc)} ` +
+        `(sunset ${hhmm(f.golden_hour.sunset_utc)} at ${f.golden_hour.dest_icao})`,
+    );
+  }
   console.log(`\n  overview: ${f.overview}`);
   console.log(`  why:      ${f.why_this}`);
 }
@@ -56,7 +68,10 @@ async function main(): Promise<void> {
   for (const input of briefs) {
     try {
       const brief = parseBrief(input);
-      const result = await generateFlight(brief, { client });
+      const result = await generateFlight(brief, {
+        client,
+        weather: createAwcWeatherProvider(),
+      });
       printResult(input, result);
     } catch (err) {
       console.error(`\n[generate] ${(err as Error).message}`);

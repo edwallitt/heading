@@ -1,4 +1,4 @@
-import { Check, Download, ExternalLink, Info, Link2, RotateCw } from "lucide-react";
+import { Check, Download, ExternalLink, Info, Link2, RotateCw, Sunset } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { aircraftLabel } from "../dials.js";
 import { buildPermalink } from "../permalink.js";
@@ -16,6 +16,42 @@ function formatCruise(level: string): string {
   const n = Number(level);
   return Number.isFinite(n) ? `${n.toLocaleString()} ft` : level;
 }
+
+type StopWeather = NonNullable<Flight["weather"]>[number];
+
+/**
+ * Standard aviation flight-category colours (VFR green, MVFR blue, IFR red,
+ * LIFR magenta), muted to sit inside the dusk palette.
+ */
+const CATEGORY_STYLE: Record<string, string> = {
+  VFR: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
+  MVFR: "border-sky-400/40 bg-sky-400/10 text-sky-300",
+  IFR: "border-red-400/40 bg-red-400/10 text-red-300",
+  LIFR: "border-fuchsia-400/40 bg-fuchsia-400/10 text-fuchsia-300",
+};
+
+/** Compact decoded METAR line: wind · visibility · ceiling · temperature. */
+function weatherSummary(w: StopWeather): string {
+  const parts: string[] = [];
+  if (w.wind_kt !== null) {
+    if (w.wind_kt === 0) {
+      parts.push("calm");
+    } else {
+      const dir =
+        w.wind_dir_deg !== null
+          ? `${String(w.wind_dir_deg).padStart(3, "0")}°`
+          : "VRB";
+      parts.push(`${dir} ${w.wind_kt}${w.gust_kt ? `G${w.gust_kt}` : ""} kt`);
+    }
+  }
+  if (w.visibility_sm !== null) parts.push(`${w.visibility_sm} SM`);
+  if (w.ceiling_ft !== null) parts.push(`ceil ${w.ceiling_ft.toLocaleString()} ft`);
+  if (w.temp_c !== null) parts.push(`${w.temp_c}°C`);
+  return parts.join(" · ");
+}
+
+/** "2026-06-21T19:27:00.000Z" → "19:27Z" (ISO timestamps are always UTC here). */
+const zulu = (iso: string) => `${iso.slice(11, 16)}Z`;
 
 function formatBlock(min: number): string {
   const h = Math.floor(min / 60);
@@ -158,6 +194,49 @@ export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCa
             <span className="ml-1.5 text-sm text-mute">{flight.aircraft_type}</span>
           </Stat>
         </div>
+
+        {flight.weather?.length ? (
+          <div>
+            <div className="placard mb-2">Live weather</div>
+            <div className="flex flex-wrap gap-2">
+              {flight.weather.map((w) => {
+                const summary = weatherSummary(w);
+                return (
+                  <div
+                    key={w.icao}
+                    title={w.raw}
+                    className="flex items-center gap-2 rounded-md border border-line bg-panel-hi/40 px-3 py-2 text-xs"
+                  >
+                    <span className="font-instrument text-sm tracking-wide text-chalk">
+                      {w.icao}
+                    </span>
+                    <span
+                      className={`rounded border px-1.5 py-0.5 font-instrument text-[10px] font-semibold tracking-wider ${CATEGORY_STYLE[w.category] ?? "border-line text-mute"}`}
+                    >
+                      {w.category}
+                    </span>
+                    {summary ? <span className="tabular-nums text-mute">{summary}</span> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {flight.golden_hour ? (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber/25 bg-amber/[0.06] px-4 py-3">
+            <Sunset size={16} className="mt-0.5 shrink-0 text-amber" />
+            <p className="text-sm leading-relaxed text-amber">
+              Golden hour: set the sim clock to lift off at{" "}
+              <span className="font-instrument tabular-nums">{zulu(flight.golden_hour.depart_utc)}</span>{" "}
+              and you'll touch down at {flight.golden_hour.dest_icao} as the light turns
+              — arriving{" "}
+              <span className="font-instrument tabular-nums">{zulu(flight.golden_hour.arrive_utc)}</span>,
+              sunset{" "}
+              <span className="font-instrument tabular-nums">{zulu(flight.golden_hour.sunset_utc)}</span>.
+            </p>
+          </div>
+        ) : null}
 
         {flight.relaxed.length > 0 ? (
           <div className="flex items-start gap-2.5 rounded-lg border border-amber/25 bg-amber/[0.06] px-4 py-3">

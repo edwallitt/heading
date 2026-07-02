@@ -1,6 +1,7 @@
 import type { AircraftProfile } from "../data/aircraft.js";
 import type { CandidateChain } from "../lib/candidatePairs.js";
-import type { Brief, Rules } from "../types.js";
+import { describeWeather } from "../weather/metar.js";
+import type { AirportWeather, Brief, Rules } from "../types.js";
 
 export interface BuildPromptInput {
   brief: Brief;
@@ -11,6 +12,8 @@ export interface BuildPromptInput {
   rules: Rules;
   /** Idents to avoid if possible (anti-repeat; Phase 5 wires the source). */
   excludeRecent?: string[];
+  /** Latest METARs by ident, for the stations in the pool that reported. */
+  weather?: Map<string, AirportWeather>;
   /** On a retry, the validation error from the previous attempt. */
   previousError?: string;
 }
@@ -22,6 +25,7 @@ You are given a numbered list of REAL, pre-validated trips. Each trip is one or 
 2. Write a short, evocative overview of the whole trip (80 words max). For a multi-leg trip, give a sense of the journey across its stops.
 3. Write a one-line reason it fits the brief.
 4. For a single-leg VFR flight only, you MAY suggest 2–5 scenic waypoints, each a real navaid identifier or a decimal "lat,lon" string. Multi-leg trips fly direct between stops — omit waypoints.
+5. Live METAR weather may be listed per trip and per airport. Factor it into your pick — for a VFR brief strongly prefer trips whose stops are VFR or MVFR — and you may weave the listed conditions (wind, visibility, ceiling) into the overview. Never invent weather that is not listed.
 
 Return JSON ONLY — no prose, no markdown, no code fences — matching exactly:
 {"choiceIndex": <number>, "overview": <string>, "why_this": <string>, "waypoints": <string[] | omitted>}
@@ -38,8 +42,16 @@ export function buildPrompt(input: BuildPromptInput): {
   system: string;
   user: string;
 } {
-  const { brief, chains, relaxed, aircraft, rules, excludeRecent, previousError } =
-    input;
+  const {
+    brief,
+    chains,
+    relaxed,
+    aircraft,
+    rules,
+    excludeRecent,
+    weather,
+    previousError,
+  } = input;
 
   const chainLines = chains
     .map((chain, i) => {
@@ -50,12 +62,36 @@ export function buildPrompt(input: BuildPromptInput): {
       const tags =
         [...new Set(chain.airports.flatMap((a) => a.vibe_tags))].join(",") || "—";
       const legWord = chain.legs.length === 1 ? "leg" : "legs";
+      // Per-stop METAR categories, for the stations in this chain that reported.
+      const wx = chain.airports
+        .map((a) => {
+          const w = weather?.get(a.ident);
+          return w ? `${a.ident} ${w.category}` : null;
+        })
+        .filter(Boolean)
+        .join(", ");
       return (
         `[${i}] ${route} · ${chain.legs.length} ${legWord} · ` +
-        `${perLeg} NM (${Math.round(chain.totalDistanceNm)} total) · vibe: ${tags}`
+        `${perLeg} NM (${Math.round(chain.totalDistanceNm)} total) · vibe: ${tags}` +
+        (wx ? ` · wx: ${wx}` : "")
       );
     })
     .join("\n");
+
+  // Decoded conditions per unique station, so the overview can cite real
+  // weather (not just a category) without inventing anything.
+  const weatherLines =
+    weather && weather.size > 0
+      ? [...new Set(chains.flatMap((c) => c.airports.map((a) => a.ident)))]
+          .map((ident) => {
+            const w = weather.get(ident);
+            if (!w) return null;
+            const detail = describeWeather(w);
+            return `${ident}: ${w.category}${detail ? ` — ${detail}` : ""}`;
+          })
+          .filter(Boolean)
+          .join("\n")
+      : "";
 
   const relaxLine =
     relaxed.length > 0
@@ -86,6 +122,7 @@ export function buildPrompt(input: BuildPromptInput): {
     "",
     `Candidate trips (choose by index):`,
     chainLines,
+    weatherLines ? `Live weather (latest METAR):\n${weatherLines}` : "",
     "",
     retryLine,
   ]

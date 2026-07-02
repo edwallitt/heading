@@ -120,6 +120,43 @@ export interface CandidatePair {
   vibeScore: number;
 }
 
+/** METAR-derived flight category (standard aviation colour coding). */
+export type FlightCategory = "VFR" | "MVFR" | "IFR" | "LIFR";
+
+/**
+ * Live surface weather at one airport, decoded from its latest METAR. A
+ * snapshot at dispatch time — permalinks carry it as-is (see `observed_utc`).
+ * Any field the report omits is null; category treats unknowns as unlimited.
+ */
+export interface AirportWeather {
+  icao: string;
+  /** The raw METAR text, verbatim. */
+  raw: string;
+  category: FlightCategory;
+  /** Wind direction (°true); null = variable or unreported. */
+  wind_dir_deg: number | null;
+  wind_kt: number | null;
+  gust_kt: number | null;
+  visibility_sm: number | null;
+  /** Lowest broken/overcast/obscured layer (ft AGL); null = no ceiling. */
+  ceiling_ft: number | null;
+  temp_c: number | null;
+  /** Observation time (ISO UTC); null if unreported. */
+  observed_utc: string | null;
+}
+
+/**
+ * Golden-hour dispatch suggestion: sim times (UTC ISO) such that departing at
+ * `depart_utc` touches down at the destination just as the golden hour begins.
+ * Computed from today's sun at the final stop; absent in polar day/night.
+ */
+export interface GoldenHour {
+  dest_icao: string;
+  depart_utc: string;
+  arrive_utc: string;
+  sunset_utc: string;
+}
+
 /** One leg of a flight (§8). A flight has one leg per hop (1–3). */
 export interface FlightLeg {
   from_icao: string;
@@ -163,6 +200,10 @@ export interface Flight {
   relaxed: string[];
   /** "llm" = Opus picked & wrote it; "fallback" = algorithmic pick + template. */
   source: "llm" | "fallback";
+  /** Live METARs for the trip's stops, in stop order (stations that reported). */
+  weather?: AirportWeather[];
+  /** Golden-hour timing suggestion for the final stop (absent in polar day/night). */
+  golden_hour?: GoldenHour;
   /** SimBrief dispatch URL (Phase 3) — present for every flight. */
   simbrief_url?: string;
   /** Self-generated MSFS 2024 VFR .pln XML (Phase 3) — VFR only; absent for IFR. */

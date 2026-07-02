@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildAirportIndex } from "../data/airportIndex.js";
-import type { Airport, Brief, Region, VibeTag } from "../types.js";
+import type { CandidateChain } from "../lib/candidatePairs.js";
+import type {
+  Airport,
+  AirportWeather,
+  Brief,
+  Region,
+  VibeTag,
+} from "../types.js";
+import type { WeatherProvider } from "../weather/metar.js";
 import type { LlmClient } from "./client.js";
-import { generateFlight } from "./generateFlight.js";
+import { demoteBelowMinima, generateFlight } from "./generateFlight.js";
 
 /** A line of airports ~100 NM apart (turboprop @ 45 min band ≈ 89–120 NM). */
 function line(
@@ -153,6 +161,159 @@ describe("generateFlight — no-flight + enrichment", () => {
     expect(leg.dist_nm).toBeGreaterThanOrEqual(89);
     expect(leg.dist_nm).toBeLessThanOrEqual(120);
     expect(res.flight.est_block_min).toBeGreaterThan(20); // > turboprop overhead
+  });
+});
+
+/** Minimal AirportWeather with the given category; details are nulls. */
+function wx(icao: string, category: AirportWeather["category"]): AirportWeather {
+  return {
+    icao,
+    raw: `${icao} 211200Z ...`,
+    category,
+    wind_dir_deg: 250,
+    wind_kt: 10,
+    gust_kt: null,
+    visibility_sm: 6,
+    ceiling_ft: null,
+    temp_c: 18,
+    observed_utc: "2026-06-21T12:00:00Z",
+  };
+}
+
+const stubProvider = (reports: AirportWeather[]): WeatherProvider => ({
+  async metars() {
+    return new Map(reports.map((r) => [r.icao, r]));
+  },
+});
+
+// Mid-latitude fixtures + a June date → the evening sun always exists.
+const JUNE_NOON = new Date("2026-06-21T12:00:00Z");
+
+describe("generateFlight — live weather + golden hour", () => {
+  it("attaches per-stop weather in stop order and a golden-hour suggestion", async () => {
+    const m = mockClient([ok(0)]);
+    const res = await generateFlight(brief(), {
+      index,
+      client: m.client,
+      weather: stubProvider([wx("EU1", "MVFR"), wx("EU0", "VFR")]),
+      now: JUNE_NOON,
+    });
+
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+
+    const stops = [
+      res.flight.legs[0]!.from_icao,
+      ...res.flight.legs.map((l) => l.to_icao),
+    ];
+    expect(res.flight.weather?.map((w) => w.icao)).toEqual(stops);
+
+    const golden = res.flight.golden_hour;
+    expect(golden).toBeDefined();
+    expect(golden!.dest_icao).toBe(stops[stops.length - 1]);
+    // Depart backs the block time off the golden-hour arrival; sunset is later.
+    const depart = new Date(golden!.depart_utc).getTime();
+    const arrive = new Date(golden!.arrive_utc).getTime();
+    expect(arrive - depart).toBe(res.flight.est_block_min * 60_000);
+    expect(new Date(golden!.sunset_utc).getTime()).toBeGreaterThan(arrive);
+  });
+
+  it("feeds METAR categories and decoded conditions to the model", async () => {
+    const m = mockClient([ok(0)]);
+    await generateFlight(brief(), {
+      index,
+      client: m.client,
+      weather: stubProvider([wx("EU0", "VFR")]),
+      now: JUNE_NOON,
+    });
+
+    expect(m.inputs[0]!.user).toContain("wx: EU0 VFR");
+    expect(m.inputs[0]!.user).toContain("Live weather (latest METAR):");
+    expect(m.inputs[0]!.user).toContain("EU0: VFR — wind 250° 10 kt");
+    expect(m.inputs[0]!.system).toContain("Never invent weather");
+  });
+
+  it("survives a throwing weather provider (weather omitted, flight intact)", async () => {
+    const m = mockClient([ok(0)]);
+    const res = await generateFlight(brief(), {
+      index,
+      client: m.client,
+      weather: {
+        async metars() {
+          throw new Error("AWC is down");
+        },
+      },
+    });
+
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.flight.weather).toBeUndefined();
+    expect(res.flight.overview).toBe("A scenic Alpine hop.");
+  });
+
+  it("omits the golden hour in polar day (no evening sun to aim for)", async () => {
+    // ~79°N in June: the sun never descends through 6°.
+    const polar = buildAirportIndex(
+      Array.from({ length: 3 }, (_, i) => ({
+        ident: `SV${i}`,
+        name: `Svalbard Field ${i}`,
+        type: "medium_airport" as const,
+        iso_country: "SJ",
+        region: "europe" as Region,
+        lat: 79,
+        lon: 12 + i * (100 / 60 / Math.cos((79 * Math.PI) / 180)),
+        elev_ft: 0,
+        longest_rwy_ft: 5000,
+        vibe_tags: [] as VibeTag[],
+      })),
+    );
+    const res = await generateFlight(brief({ vibe: "any" }), {
+      index: polar,
+      now: JUNE_NOON,
+    });
+
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.flight.golden_hour).toBeUndefined();
+  });
+});
+
+describe("demoteBelowMinima", () => {
+  const chainOf = (...idents: string[]): CandidateChain => {
+    const airports = idents.map((ident) => ({
+      ident,
+      name: ident,
+      type: "medium_airport",
+      iso_country: "XX",
+      region: "europe" as Region,
+      lat: 50,
+      lon: 0,
+      elev_ft: 0,
+      longest_rwy_ft: 5000,
+      vibe_tags: [] as VibeTag[],
+    }));
+    return { airports, legs: [], totalDistanceNm: 0, vibeScore: 0 };
+  };
+
+  it("stable-moves chains with an IFR/LIFR stop behind the flyable ones", () => {
+    const chains = [chainOf("A", "B"), chainOf("C", "D"), chainOf("E", "F")];
+    const weather = new Map([
+      ["B", wx("B", "LIFR")],
+      ["C", wx("C", "VFR")],
+    ]);
+    expect(
+      demoteBelowMinima(chains, weather).map((c) => c.airports[0]!.ident),
+    ).toEqual(["C", "E", "A"]);
+  });
+
+  it("is a no-op without weather, and never drops a chain", () => {
+    const chains = [chainOf("A", "B"), chainOf("C", "D")];
+    expect(demoteBelowMinima(chains, new Map())).toEqual(chains);
+    const allBad = new Map([
+      ["A", wx("A", "IFR")],
+      ["C", wx("C", "LIFR")],
+    ]);
+    expect(demoteBelowMinima(chains, allBad)).toHaveLength(2);
   });
 });
 

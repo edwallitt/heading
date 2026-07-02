@@ -60,6 +60,14 @@ from the server, never hardcoded in the UI.
 - **Route map** (MapLibre GL on OpenFreeMap's dark style) drawn as instrumentation:
   a magenta course line with a heading dart on each leg, every stop labelled, fit
   to the route.
+- **Live weather** — the latest METAR for every stop (from
+  [aviationweather.gov](https://aviationweather.gov), no key), decoded to a
+  flight-category badge plus wind/vis/ceiling/temp. The model sees the same
+  reports, so the briefing can cite real conditions — and for a VFR brief,
+  trips with IFR/LIFR stops are demoted, never silently picked.
+- **Golden-hour dispatch** — a suggested sim departure time (pure sun math, no
+  API) that touches you down at the destination just as the golden hour begins,
+  with the sunset time alongside.
 - **Open in SimBrief** and, for VFR, **Download `.pln`** (loads in MSFS 2024).
 - **Shareable permalink** — the whole flight encoded into the URL. Paste a link
   and it reproduces the exact card, map and all, with no new AI call.
@@ -85,7 +93,10 @@ shareable link.
   is fully typed without importing server logic.
 - Reference data is baked at build time from [OurAirports](https://ourairports.com/data/)
   into committed JSON; map tiles are from [OpenFreeMap](https://openfreemap.org)
-  (no API key).
+  (no API key); live METARs come from the
+  [AWC data API](https://aviationweather.gov/data/api/) (no API key, and a
+  weather outage degrades to a card without the weather strip — never a failed
+  dispatch).
 
 ### Monorepo layout
 

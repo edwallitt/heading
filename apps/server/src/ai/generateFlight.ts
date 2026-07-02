@@ -5,10 +5,15 @@ import { estBlockMin } from "../lib/blockTime.js";
 import { greatCircleNm } from "../lib/geo.js";
 import { legalVfrAltitude } from "../lib/vfrAltitude.js";
 import { resolveBrief } from "../lib/resolveBrief.js";
+import { eveningSun } from "../lib/sun.js";
+import type { WeatherProvider } from "../weather/metar.js";
 import type {
+  Airport,
+  AirportWeather,
   Brief,
   Flight,
   FlightLeg,
+  GoldenHour,
   LatLon,
   Rules,
 } from "../types.js";
@@ -30,6 +35,10 @@ export interface GenerateFlightDeps {
   client?: LlmClient;
   /** Anti-repeat exclusion list (Phase 5 wires the source). */
   excludeRecent?: string[];
+  /** Live-weather seam; omit to skip METAR enrichment entirely. */
+  weather?: WeatherProvider;
+  /** Clock for the golden-hour suggestion; injectable for deterministic tests. */
+  now?: Date;
 }
 
 interface Choice {
@@ -63,22 +72,75 @@ export async function generateFlight(
     return { status: "no_flight", reason };
   }
 
+  const weather = await stationWeather(deps.weather, chains);
+  const ranked =
+    constraints.rules === "VFR" ? demoteBelowMinima(chains, weather) : chains;
+
   const choice = deps.client
     ? await chooseWithLlm(
         brief,
-        chains,
+        ranked,
         relaxed,
         constraints.aircraft,
         constraints.rules,
         deps.client,
         deps.excludeRecent ?? [],
+        weather,
       )
-    : fallbackChoice(chains);
+    : fallbackChoice(ranked);
 
   return {
     status: "ok",
-    flight: enrich(brief, constraints.aircraft, constraints.rules, choice, relaxed),
+    flight: enrich(
+      brief,
+      constraints.aircraft,
+      constraints.rules,
+      choice,
+      relaxed,
+      weather,
+      deps.now ?? new Date(),
+    ),
   };
+}
+
+/**
+ * Latest METARs for every airport in the candidate pool, in one provider call.
+ * Live weather is an enhancement: a missing provider, a thrown error, or a
+ * station with no report all degrade to "no weather", never to a failure.
+ */
+async function stationWeather(
+  provider: WeatherProvider | undefined,
+  chains: CandidateChain[],
+): Promise<Map<string, AirportWeather>> {
+  if (!provider) return new Map();
+  const idents = [...new Set(chains.flatMap((c) => c.airports.map((a) => a.ident)))];
+  try {
+    return await provider.metars(idents);
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * For a VFR brief, stable-demote chains with any IFR/LIFR stop to the back of
+ * the pool. Weather never *removes* a candidate — METAR coverage is patchy and
+ * a below-minima chain may be all that's left — it only re-ranks, so both the
+ * model's list and the algorithmic fallback prefer flyable-in-VMC trips.
+ */
+export function demoteBelowMinima(
+  chains: CandidateChain[],
+  weather: Map<string, AirportWeather>,
+): CandidateChain[] {
+  if (weather.size === 0) return chains;
+  const belowMinima = (chain: CandidateChain): boolean =>
+    chain.airports.some((a) => {
+      const category = weather.get(a.ident)?.category;
+      return category === "IFR" || category === "LIFR";
+    });
+  return [
+    ...chains.filter((c) => !belowMinima(c)),
+    ...chains.filter(belowMinima),
+  ];
 }
 
 /** Up to two model attempts; the second is fed the first's validation error. */
@@ -90,6 +152,7 @@ async function chooseWithLlm(
   rules: Rules,
   client: LlmClient,
   excludeRecent: string[],
+  weather: Map<string, AirportWeather>,
 ): Promise<Choice> {
   let previousError: string | undefined;
 
@@ -102,6 +165,7 @@ async function chooseWithLlm(
         aircraft,
         rules,
         excludeRecent,
+        weather,
         previousError,
       });
       const raw = await client.complete({ system, user });
@@ -176,6 +240,8 @@ function enrich(
   rules: Rules,
   choice: Choice,
   relaxed: string[],
+  weather: Map<string, AirportWeather>,
+  now: Date,
 ): Flight {
   const chainLegs = choice.chain.legs;
   const singleLeg = chainLegs.length === 1;
@@ -218,6 +284,13 @@ function enrich(
       ? `Best ranked match for a ${brief.timeBand} ${brief.aircraft.replace("_", " ")} brief in ${brief.region.replace("_", " ")}.`
       : choice.why_this;
 
+  // Live weather in stop order (origin, then each arrival) — stations only.
+  const stops = choice.chain.airports;
+  const stopWeather = stops
+    .map((a) => weather.get(a.ident))
+    .filter((w): w is AirportWeather => w !== undefined);
+  const golden = goldenHourFor(stops[stops.length - 1]!, blockMin, now);
+
   return {
     brief,
     aircraft_type: aircraft.simbrief_type,
@@ -229,6 +302,30 @@ function enrich(
     legs,
     relaxed,
     source: choice.source,
+    ...(stopWeather.length > 0 ? { weather: stopWeather } : {}),
+    ...(golden ? { golden_hour: golden } : {}),
+  };
+}
+
+/**
+ * Suggest sim timing that touches down at the destination right as the golden
+ * hour begins (today's sun, computed locally — the sim clock is the pilot's to
+ * set). Departure backs the whole block time off the arrival. Null in polar
+ * day/night, where there is no golden hour to aim for.
+ */
+function goldenHourFor(
+  dest: Airport,
+  blockMin: number,
+  now: Date,
+): GoldenHour | null {
+  const sun = eveningSun(dest.lat, dest.lon, now);
+  if (!sun) return null;
+  const depart = new Date(sun.goldenStart.getTime() - blockMin * 60_000);
+  return {
+    dest_icao: dest.ident,
+    depart_utc: depart.toISOString(),
+    arrive_utc: sun.goldenStart.toISOString(),
+    sunset_utc: sun.sunset.toISOString(),
   };
 }
 

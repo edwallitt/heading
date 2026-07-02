@@ -5,6 +5,7 @@ import { withExports } from "./export/index.js";
 import { flightOptions } from "./options.js";
 import { briefSchema } from "./schema.js";
 import { publicProcedure, router } from "./trpc.js";
+import { createAwcWeatherProvider } from "./weather/metar.js";
 
 /**
  * `flight.generate` input: the Brief plus an optional anti-repeat list of
@@ -41,6 +42,7 @@ const flightRouter = router({
     const { excludeRecent, ...brief } = input;
     const result = await generateFlight(brief, {
       client: createAnthropicClient(),
+      weather: createAwcWeatherProvider(),
       excludeRecent,
     });
     // Attach Phase 3 export artifacts (SimBrief URL + VFR .pln) to a successful
