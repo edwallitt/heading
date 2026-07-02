@@ -1,11 +1,20 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createAnthropicClient } from "./ai/client.js";
 import { generateFlight } from "./ai/generateFlight.js";
 import { withExports } from "./export/index.js";
 import { flightOptions } from "./options.js";
+import { createRateLimiter } from "./rateLimit.js";
 import { briefSchema } from "./schema.js";
-import { publicProcedure, router } from "./trpc.js";
+import { protectedProcedure, publicProcedure, router } from "./trpc.js";
 import { createAwcWeatherProvider } from "./weather/metar.js";
+
+/**
+ * Backstop against a runaway loop hammering the token-spending path. Process-
+ * local and best-effort (see `rateLimit.ts`); the Anthropic console spend limit
+ * is the real ceiling.
+ */
+const generateLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 60 * 1000 });
 
 /**
  * `flight.generate` input: the Brief plus an optional anti-repeat list of
@@ -37,8 +46,14 @@ const systemRouter = router({
 const flightRouter = router({
   // Brief-builder metadata: dial value lists + the time×aircraft viability
   // matrix that drives the client's progressive narrowing. Static and cheap.
-  options: publicProcedure.query(() => flightOptions()),
-  generate: publicProcedure.input(generateInput).mutation(async ({ input }) => {
+  options: protectedProcedure.query(() => flightOptions()),
+  generate: protectedProcedure.input(generateInput).mutation(async ({ input }) => {
+    if (!generateLimiter(Date.now())) {
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: "Rate limit reached — try again shortly.",
+      });
+    }
     const { excludeRecent, ...brief } = input;
     const result = await generateFlight(brief, {
       client: createAnthropicClient(),

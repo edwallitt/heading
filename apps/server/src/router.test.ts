@@ -62,7 +62,7 @@ function briefInput(over: Record<string, unknown> = {}): GenerateInput {
   } as unknown as GenerateInput;
 }
 
-const caller = () => appRouter.createCaller({});
+const caller = () => appRouter.createCaller({ authorized: true });
 
 describe("briefSchema — the flight.generate input core", () => {
   it("defaults legCount to a single hop when omitted", () => {
