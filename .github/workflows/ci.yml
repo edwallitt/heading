@@ -33,8 +33,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test (server)
-        run: pnpm --filter @heading/server test
+      - name: Test (server + web)
+        run: pnpm -r test
 
   deploy:
     name: Deploy to Fly.io
