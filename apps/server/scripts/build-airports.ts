@@ -58,27 +58,52 @@ function ensureInputs(): void {
   }
 }
 
-/** longest non-closed runway length (ft) per airport ident. */
-function loadLongestRunways(): Map<string, number> {
+/**
+ * OurAirports surface strings are free text ("ASP", "asphalt", "CON",
+ * "Concrete", "PEM", "paved", "BIT", "TARMAC", …). Match the common paved
+ * tokens; anything else (grass, gravel, dirt, water, unknown) counts as
+ * unpaved, so the paved length under-reports rather than over-reports.
+ */
+const PAVED_SURFACE_RE = /asp|bit|con|pem|tar|paved|brick|macadam/i;
+
+function isPavedSurface(surface: string): boolean {
+  return PAVED_SURFACE_RE.test(surface.trim());
+}
+
+interface RunwayLengths {
+  /** Longest open runway of any surface, ft. */
+  longestFt: number;
+  /** Longest open paved runway, ft; 0 if none. */
+  longestPavedFt: number;
+}
+
+/** Longest non-closed runway lengths (any surface + paved) per airport ident. */
+function loadLongestRunways(): Map<string, RunwayLengths> {
   const rows = parseCsv(readFileSync(RUNWAYS_CSV, "utf8"));
   const header = rows.shift();
   if (!header) fail("runways.csv is empty.");
   const col = headerIndex(header);
   const identCol = col.get("airport_ident");
   const lenCol = col.get("length_ft");
+  const surfaceCol = col.get("surface");
   const closedCol = col.get("closed");
   if (identCol === undefined || lenCol === undefined) {
     fail("runways.csv missing expected columns (airport_ident, length_ft).");
   }
 
-  const longest = new Map<string, number>();
+  const longest = new Map<string, RunwayLengths>();
   for (const row of rows) {
     if (closedCol !== undefined && row[closedCol] === "1") continue;
     const ident = row[identCol]?.trim();
     const len = Number(row[lenCol]);
     if (!ident || !Number.isFinite(len) || len <= 0) continue;
-    const prev = longest.get(ident) ?? 0;
-    if (len > prev) longest.set(ident, len);
+    const entry = longest.get(ident) ?? { longestFt: 0, longestPavedFt: 0 };
+    if (len > entry.longestFt) entry.longestFt = len;
+    const surface = surfaceCol !== undefined ? (row[surfaceCol] ?? "") : "";
+    if (isPavedSurface(surface) && len > entry.longestPavedFt) {
+      entry.longestPavedFt = len;
+    }
+    longest.set(ident, entry);
   }
   return longest;
 }
@@ -137,6 +162,12 @@ function main(): void {
       dropped.noRunway++;
       continue;
     }
+    // Instrument-procedure proxy (§4-style documented approximation): airports
+    // with scheduled airline service — or large airports — reliably have
+    // published approaches (ILS/RNAV) and SIDs/STARs.
+    const ifrCapable =
+      get(row, "scheduled_service").trim().toLowerCase() === "yes" ||
+      type === "large_airport";
     const region = resolveRegion(get(row, "continent"), get(row, "iso_country"));
     if (!region) {
       dropped.region++;
@@ -161,7 +192,9 @@ function main(): void {
       lat,
       lon,
       elev_ft: elevFt,
-      longest_rwy_ft: Math.round(rwy),
+      longest_rwy_ft: Math.round(rwy.longestFt),
+      longest_paved_rwy_ft: Math.round(rwy.longestPavedFt),
+      ifr_capable: ifrCapable,
       vibe_tags: vibeTags(lat, lon, elevFt),
     });
   }
@@ -177,9 +210,14 @@ function main(): void {
     for (const t of a.vibe_tags) byVibe.set(t, (byVibe.get(t) ?? 0) + 1);
   }
 
+  const pavedCount = out.filter((a) => a.longest_paved_rwy_ft > 0).length;
+  const ifrCount = out.filter((a) => a.ifr_capable).length;
+
   console.log("\n[build-airports] done.");
   console.log(`  input rows:        ${totalIn}`);
   console.log(`  emitted airports:  ${out.length}`);
+  console.log(`  with paved runway: ${pavedCount}`);
+  console.log(`  ifr_capable:       ${ifrCount}`);
   console.log(`  dropped — type:    ${dropped.type}`);
   console.log(`  dropped — ident:   ${dropped.ident}`);
   console.log(`  dropped — runway:  ${dropped.noRunway}`);

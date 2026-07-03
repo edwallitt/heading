@@ -31,6 +31,8 @@ function line(
       lon: 0,
       elev_ft: 0,
       longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
       vibe_tags: [...vibe],
     });
   }
@@ -264,6 +266,8 @@ describe("generateFlight — live weather + golden hour", () => {
         lon: 12 + i * (100 / 60 / Math.cos((79 * Math.PI) / 180)),
         elev_ft: 0,
         longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
         vibe_tags: [] as VibeTag[],
       })),
     );
@@ -290,6 +294,8 @@ describe("demoteBelowMinima", () => {
       lon: 0,
       elev_ft: 0,
       longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
       vibe_tags: [] as VibeTag[],
     }));
     return { airports, legs: [], totalDistanceNm: 0, vibeScore: 0 };
@@ -330,6 +336,8 @@ describe("generateFlight — multi-leg", () => {
       lon: 0,
       elev_ft: 0,
       longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
       vibe_tags: [] as VibeTag[],
     })),
   );

@@ -22,6 +22,10 @@ export interface ResolvedConstraints {
   /** How many legs the trip should have (1–3). */
   legCount: number;
   minRunwayFt: number;
+  /** Count only paved runways toward the runway minimum. */
+  pavedRwyOnly: boolean;
+  /** Require airports with (proxied) instrument procedures. */
+  ifrCapableOnly: boolean;
   ceilingFt: number;
   rules: Rules;
   region: Region | "anywhere";
@@ -41,6 +45,8 @@ export function resolveBrief(brief: Brief): ResolvedConstraints {
     distanceBand: distanceBand(minutes, aircraft, brief.legCount),
     legCount: brief.legCount,
     minRunwayFt: aircraft.min_rwy_ft,
+    pavedRwyOnly: aircraft.paved_rwy_only,
+    ifrCapableOnly: aircraft.ifr_capable_only,
     ceilingFt: aircraft.ceiling_ft,
     // "any" defers to the category default; otherwise the explicit choice holds.
     rules: brief.rules === "any" ? aircraft.default_rules : brief.rules,

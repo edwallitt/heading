@@ -31,7 +31,8 @@ export interface CandidatePairResult {
 /**
  * The §4 candidate-pair pipeline as pure functions.
  *
- * Hard-filters an origin pool (region + min runway; airports are pre-cleaned to
+ * Hard-filters an origin pool (region + min runway — paved-only and
+ * instrument-procedure-capable for jet categories; airports are pre-cleaned to
  * open, runway-bearing, ICAO-identified types at build time), samples origins,
  * finds destinations in the distance band (bounding-box prefilter THEN exact
  * great-circle), soft-ranks by vibe match, and — if too few pairs survive —
@@ -214,7 +215,7 @@ function rankedDestinations(
   const out: { destination: Airport; distanceNm: number; vibeScore: number }[] = [];
   for (const d of index.withinBox(box, c.region)) {
     if (d.ident === origin.ident) continue;
-    if (d.longest_rwy_ft < c.minRunwayFt) continue;
+    if (!passesAirportFilter(d, c)) continue;
     if (
       c.vibeTags.length > 0 &&
       !c.vibeTags.some((t) => d.vibe_tags.includes(t))
@@ -237,6 +238,18 @@ function rankedDestinations(
 
 const last = <T>(arr: T[]): T => arr[arr.length - 1]!;
 
+/**
+ * Airport-level hard filter: runway length (paved-only for jets) and, for jet
+ * categories, the instrument-procedure requirement. Shared by the origin pool,
+ * the pair destination loop, and chain extension so no path can bypass it.
+ */
+function passesAirportFilter(a: Airport, c: ResolvedConstraints): boolean {
+  const rwyFt = c.pavedRwyOnly ? a.longest_paved_rwy_ft : a.longest_rwy_ft;
+  if (rwyFt < c.minRunwayFt) return false;
+  if (c.ifrCapableOnly && !a.ifr_capable) return false;
+  return true;
+}
+
 /** One pass of the hard-filter + distance-band + soft-rank pipeline. */
 function runPipeline(
   c: ResolvedConstraints,
@@ -248,7 +261,7 @@ function runPipeline(
 
   const originPool = index
     .inRegion(c.region)
-    .filter((a) => a.longest_rwy_ft >= c.minRunwayFt);
+    .filter((a) => passesAirportFilter(a, c));
   const origins = sample(originPool, opts.originSample);
 
   const pairs: CandidatePair[] = [];
@@ -259,7 +272,7 @@ function runPipeline(
     const dests = index.withinBox(box, c.region);
     for (const d of dests) {
       if (d.ident === o.ident) continue;
-      if (d.longest_rwy_ft < c.minRunwayFt) continue;
+      if (!passesAirportFilter(d, c)) continue;
       // Vibe is a destination filter when requested (you fly *to* the character).
       if (
         c.vibeTags.length > 0 &&

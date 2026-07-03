@@ -26,6 +26,7 @@ You are given a numbered list of REAL, pre-validated trips. Each trip is one or 
 3. Write a one-line reason it fits the brief.
 4. For a single-leg VFR flight only, you MAY suggest 2–5 scenic waypoints, each a real navaid identifier or a decimal "lat,lon" string. Multi-leg trips fly direct between stops — omit waypoints.
 5. Live METAR weather may be listed per trip and per airport. Factor it into your pick — for a VFR brief strongly prefer trips whose stops are VFR or MVFR — and you may weave the listed conditions (wind, visibility, ceiling) into the overview. Never invent weather that is not listed.
+6. For an IFR jet brief, every stop is pre-screened for jet operations (paved runway at or above the aircraft minimum, and airline-service airports with published instrument procedures — ILS/RNAV approaches, SIDs and STARs). Among the candidates, prefer stops with longer runways and larger, better-equipped airports; the runway length listed per stop is its longest paved runway.
 
 Return JSON ONLY — no prose, no markdown, no code fences — matching exactly:
 {"choiceIndex": <number>, "overview": <string>, "why_this": <string>, "waypoints": <string[] | omitted>}
@@ -56,7 +57,14 @@ export function buildPrompt(input: BuildPromptInput): {
   const chainLines = chains
     .map((chain, i) => {
       const route = chain.airports
-        .map((a) => `${a.ident} ${a.name} (${a.iso_country})`)
+        .map((a) => {
+          // For jet categories quote the paved length (what the filter used);
+          // otherwise the longest runway of any surface.
+          const rwyFt = aircraft.paved_rwy_only
+            ? a.longest_paved_rwy_ft
+            : a.longest_rwy_ft;
+          return `${a.ident} ${a.name} (${a.iso_country}, rwy ${rwyFt} ft)`;
+        })
         .join(" → ");
       const perLeg = chain.legs.map((l) => `${Math.round(l.distanceNm)}`).join("+");
       const tags =
@@ -116,7 +124,8 @@ export function buildPrompt(input: BuildPromptInput): {
     `Brief: a ${legPhrase} ${brief.timeBand} ${brief.aircraft.replace("_", " ")} trip in ` +
       `${brief.region.replace("_", " ")}, ${rules} rules, vibe: ${brief.vibe}.`,
     `Aircraft profile: ${aircraft.simbrief_type}, cruise ${aircraft.cruise_tas} kt, ` +
-      `ceiling ${aircraft.ceiling_ft} ft, min runway ${aircraft.min_rwy_ft} ft.`,
+      `ceiling ${aircraft.ceiling_ft} ft, min runway ${aircraft.min_rwy_ft} ft` +
+      `${aircraft.paved_rwy_only ? " paved" : ""}.`,
     relaxLine,
     excludeLine,
     "",

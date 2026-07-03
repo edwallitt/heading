@@ -18,6 +18,13 @@ export interface AircraftProfile {
   climb_descent_nm: number;
   /** Minimum usable runway length, feet. */
   min_rwy_ft: number;
+  /** Runway filter counts only paved runways (jets can't use grass/gravel). */
+  paved_rwy_only: boolean;
+  /**
+   * Restrict to airports with (proxied) published instrument procedures —
+   * ILS/RNAV approaches and SIDs/STARs. See Airport.ifr_capable.
+   */
+  ifr_capable_only: boolean;
   /** Default flight rules for the category. */
   default_rules: Rules;
   /** Sample SimBrief type designator (flavour / Phase 3). */
@@ -35,6 +42,8 @@ export const AIRCRAFT: readonly AircraftProfile[] = [
     overhead_min: 12,
     climb_descent_nm: 15,
     min_rwy_ft: 1500,
+    paved_rwy_only: false,
+    ifr_capable_only: false,
     default_rules: "VFR",
     simbrief_type: "C172",
     range_nm: 600,
@@ -46,6 +55,8 @@ export const AIRCRAFT: readonly AircraftProfile[] = [
     overhead_min: 20,
     climb_descent_nm: 50,
     min_rwy_ft: 3000,
+    paved_rwy_only: false,
+    ifr_capable_only: false,
     default_rules: "VFR",
     simbrief_type: "TBM9",
     range_nm: 1500,
@@ -56,7 +67,10 @@ export const AIRCRAFT: readonly AircraftProfile[] = [
     ceiling_ft: 41000,
     overhead_min: 30,
     climb_descent_nm: 120,
-    min_rwy_ft: 5000,
+    // 6000 ft paved covers CRJ700/E190-class field lengths with margin.
+    min_rwy_ft: 6000,
+    paved_rwy_only: true,
+    ifr_capable_only: true,
     default_rules: "IFR",
     simbrief_type: "E190",
     range_nm: 2000,
@@ -68,6 +82,8 @@ export const AIRCRAFT: readonly AircraftProfile[] = [
     overhead_min: 35,
     climb_descent_nm: 150,
     min_rwy_ft: 7000,
+    paved_rwy_only: true,
+    ifr_capable_only: true,
     default_rules: "IFR",
     simbrief_type: "A320",
     range_nm: 3500,

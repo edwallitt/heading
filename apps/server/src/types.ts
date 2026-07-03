@@ -61,6 +61,15 @@ export interface Airport {
   lon: number;
   elev_ft: number;
   longest_rwy_ft: number;
+  /** Longest open PAVED runway (ft); 0 if every runway is unpaved. */
+  longest_paved_rwy_ft: number;
+  /**
+   * Proxy for published instrument procedures (ILS/RNAV, SIDs/STARs):
+   * scheduled airline service or a large airport. OurAirports has no
+   * procedure data, so this is coarse — it misses well-equipped GA fields
+   * (e.g. KTEB) but never admits a procedure-less strip.
+   */
+  ifr_capable: boolean;
   vibe_tags: VibeTag[];
 }
 

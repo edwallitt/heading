@@ -26,6 +26,8 @@ function line(
       lon: 0,
       elev_ft: 0,
       longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
       vibe_tags: [...vibe],
     });
   }
@@ -102,6 +104,8 @@ describe("candidatePairs soft ranking", () => {
       lon: 0,
       elev_ft: 0,
       longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
       vibe_tags: vibe,
     });
     const index = buildAirportIndex([
@@ -137,9 +141,112 @@ function spacedLine(prefix: string, count: number, stepNm: number): Airport[] {
     lon: 0,
     elev_ft: 0,
     longest_rwy_ft: 5000,
+    longest_paved_rwy_ft: 5000,
+    ifr_capable: true,
     vibe_tags: [] as VibeTag[],
   }));
 }
+
+describe("jet airport hard filters", () => {
+  /**
+   * A meridian line spaced 220 NM apart: regional jet @ 1hr has a per-leg band
+   * of ~187–253 NM, so only adjacent airports pair. All airports are jet-ready
+   * unless overridden.
+   */
+  const jetAirport = (
+    ident: string,
+    i: number,
+    over: Partial<Airport> = {},
+  ): Airport => ({
+    ident,
+    name: ident,
+    type: "medium_airport",
+    iso_country: "XX",
+    region: "europe",
+    lat: 40 + i * (220 / 60),
+    lon: 0,
+    elev_ft: 0,
+    longest_rwy_ft: 9000,
+    longest_paved_rwy_ft: 9000,
+    ifr_capable: true,
+    vibe_tags: [],
+    ...over,
+  });
+  const jetBrief = brief({
+    aircraft: "regional_jet",
+    timeBand: "1hr",
+    rules: "IFR",
+  });
+
+  const identsIn = (pairs: { origin: Airport; destination: Airport }[]) =>
+    new Set(pairs.flatMap((p) => [p.origin.ident, p.destination.ident]));
+
+  it("excludes airports whose only long runway is unpaved", () => {
+    const index = buildAirportIndex([
+      jetAirport("AAAA", 0),
+      jetAirport("BBBB", 1),
+      // 9000 ft, but grass — passes the old any-surface check, must fail now.
+      jetAirport("GRAS", 2, { longest_paved_rwy_ft: 0 }),
+      jetAirport("CCCC", 3),
+    ]);
+    const { pairs } = candidatePairs(jetBrief, index);
+    expect(pairs.length).toBeGreaterThan(0);
+    expect(identsIn(pairs)).not.toContain("GRAS");
+  });
+
+  it("excludes airports whose paved runway is under the jet minimum", () => {
+    const index = buildAirportIndex([
+      jetAirport("AAAA", 0),
+      jetAirport("BBBB", 1),
+      // Longest runway 9000 ft grass, paved only 5500 ft < 6000 ft minimum.
+      jetAirport("SHRT", 2, { longest_paved_rwy_ft: 5500 }),
+      jetAirport("CCCC", 3),
+    ]);
+    const { pairs } = candidatePairs(jetBrief, index);
+    expect(pairs.length).toBeGreaterThan(0);
+    expect(identsIn(pairs)).not.toContain("SHRT");
+  });
+
+  it("excludes airports without instrument procedures for jet categories", () => {
+    const index = buildAirportIndex([
+      jetAirport("AAAA", 0),
+      jetAirport("BBBB", 1),
+      jetAirport("NIFR", 2, { ifr_capable: false }),
+      jetAirport("CCCC", 3),
+    ]);
+    const { pairs } = candidatePairs(jetBrief, index);
+    expect(pairs.length).toBeGreaterThan(0);
+    expect(identsIn(pairs)).not.toContain("NIFR");
+  });
+
+  it("keeps chain extension legs on jet-capable airports too", () => {
+    // 2-leg chain must route A→B→C, never through the grass field at slot 2.
+    const index = buildAirportIndex([
+      jetAirport("AAAA", 0),
+      jetAirport("BBBB", 1),
+      jetAirport("GRAS", 2, { longest_paved_rwy_ft: 0 }),
+      jetAirport("CCCC", 2.05), // near GRAS, jet-capable alternative
+    ]);
+    const { chains } = candidateChains(
+      brief({ aircraft: "regional_jet", timeBand: "2hr", rules: "IFR", legCount: 2 }),
+      index,
+    );
+    for (const chain of chains) {
+      expect(chain.airports.map((a) => a.ident)).not.toContain("GRAS");
+    }
+  });
+
+  it("still allows unpaved, non-IFR strips for prop categories", () => {
+    // Turboprop (VFR, no paved/IFR requirement) on 5000 ft grass strips.
+    const grassStrips = line("EU", "europe", 4).map((a) => ({
+      ...a,
+      longest_paved_rwy_ft: 0,
+      ifr_capable: false,
+    }));
+    const { pairs } = candidatePairs(brief({}), buildAirportIndex(grassStrips));
+    expect(pairs.length).toBe(3);
+  });
+});
 
 describe("candidateChains", () => {
   it("legCount=1 mirrors candidatePairs (each chain is one two-airport leg)", () => {
