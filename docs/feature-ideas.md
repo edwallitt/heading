@@ -63,17 +63,17 @@ the time the app tells the user to fly. AWC serves TAFs from the same keyless
 API; decode the validity window covering the proposed departure and badge the
 destination with the *forecast* category alongside the current one.
 
-### 6. Fix the coastal vibe with real coastline data (+ restore Africa)
+### 6. Fix the coastal vibe with real coastline data (~~+ restore Africa~~)
 
 The ≤50 ft elevation proxy is the weakest vibe tag (inland river valleys
 qualify; cliff-top coastal fields don't). Natural Earth's coastline geojson is
 small and free — bake distance-to-coast at build time in
-`scripts/build-airports.ts` and the tag becomes trustworthy.
+`scripts/build-airports.ts` and the tag becomes trustworthy. *(Still open.)*
 
-While in there: **restore Africa**. It was dropped deliberately in Phase 1,
-but Namibia, the Nile, and the Rift Valley are some of the best sim flying on
-Earth, and the pipeline no longer has whatever constraint motivated dropping
-it.
+~~While in there: **restore Africa**.~~ ✅ *(shipped July 2026)* — `regions.ts`
+now maps continent `AF → "africa"`; the asset regenerated to +804 African
+fields and the region is a first-class dial. The coastline-data half above is
+still outstanding.
 
 ### 7. Golden hour is one mode — make it a dial
 
@@ -132,10 +132,10 @@ write themselves. "Surprise me" occasionally hitting Lukla is worth more than
 any algorithmic vibe.
 
 Shipped as `data/notable.ts` (ICAO→hook map, tag applied at load — not baked
-into the airport asset, since the list changes on a different cadence). 36
+into the airport asset, since the list changes on a different cadence). 50
 curated fields present in the dataset; the hook text is surfaced per-chain to
-the prompt. Africa entries (Cape Town, Nairobi, Lagos, Casablanca) are staged
-but dead until Africa is restored (#6).
+the prompt. Grew from 36 to 50 once Africa was restored (#6), adding Cape
+Town, Kilimanjaro, Victoria Falls, Réunion, Zanzibar and the African majors.
 
 ### 12. Shareable dispatch card
 
