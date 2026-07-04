@@ -50,6 +50,7 @@ export const VIBE_OPTIONS: DialOption<Vibe>[] = [
   { value: "mountain", label: "Mountains" },
   { value: "coastal", label: "Coastal" },
   { value: "urban", label: "City skylines" },
+  { value: "notable", label: "Notable" },
   { value: "any", label: "Surprise me" },
 ];
 

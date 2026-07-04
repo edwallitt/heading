@@ -70,6 +70,39 @@ describe("permalink round trip", () => {
   });
 });
 
+describe("waypoint normalisation", () => {
+  it("keeps structured waypoints as-is", () => {
+    const wp = { ident: "WIL", kind: "navaid", lat: 47.18, lon: 7.91, name: "Willisau", type: "VOR-DME" };
+    const flight = makeFlight();
+    (flight.legs[0]! as unknown as Record<string, unknown>).waypoints = [wp];
+    applyPermalink(buildPermalink(flight));
+
+    expect(readPermalink()!.legs[0]!.waypoints).toEqual([wp]);
+  });
+
+  it('converts legacy "lat,lon" string waypoints to user waypoints and drops junk', () => {
+    const flight = makeFlight();
+    (flight.legs[0]! as unknown as Record<string, unknown>).waypoints = [
+      "46.8,8.5",
+      "junk!",
+      { ident: "BAD", kind: "navaid", lat: "not-a-number", lon: 0 },
+    ];
+    window.location.hash = encodeHash({ v: 1, f: flight });
+
+    expect(readPermalink()!.legs[0]!.waypoints).toEqual([
+      { ident: "WP1", kind: "user", lat: 46.8, lon: 8.5 },
+    ]);
+  });
+
+  it("defaults a leg with no waypoint array to an empty list", () => {
+    const flight = makeFlight();
+    delete (flight.legs[0]! as unknown as Record<string, unknown>).waypoints;
+    window.location.hash = encodeHash({ v: 1, f: flight });
+
+    expect(readPermalink()!.legs[0]!.waypoints).toEqual([]);
+  });
+});
+
 describe("readPermalink rejects bad input", () => {
   it("returns null when there is no hash", () => {
     expect(readPermalink()).toBeNull();

@@ -5,6 +5,7 @@ import { estBlockMin } from "../lib/blockTime.js";
 import { greatCircleNm } from "../lib/geo.js";
 import { legalVfrAltitude } from "../lib/vfrAltitude.js";
 import { resolveBrief } from "../lib/resolveBrief.js";
+import { assignWaypoints, suggestNavaids } from "../lib/scenicWaypoints.js";
 import { eveningSun } from "../lib/sun.js";
 import type { WeatherProvider } from "../weather/metar.js";
 import type {
@@ -15,6 +16,7 @@ import type {
   FlightLeg,
   GoldenHour,
   LatLon,
+  Navaid,
   Rules,
 } from "../types.js";
 import { buildPrompt } from "./buildPrompt.js";
@@ -39,6 +41,8 @@ export interface GenerateFlightDeps {
   weather?: WeatherProvider;
   /** Clock for the golden-hour suggestion; injectable for deterministic tests. */
   now?: Date;
+  /** Navaid set for scenic waypoints; defaults to the baked global dataset. */
+  navaids?: readonly Navaid[];
 }
 
 interface Choice {
@@ -76,6 +80,17 @@ export async function generateFlight(
   const ranked =
     constraints.rules === "VFR" ? demoteBelowMinima(chains, weather) : chains;
 
+  const navaids =
+    deps.navaids ?? (await import("../data/navaids.js")).allNavaids;
+  // Per-chain scenic navaid candidates for the prompt (VFR briefs only) —
+  // real, on-corridor idents the model can pick from instead of inventing.
+  const navaidsByChain =
+    constraints.rules === "VFR"
+      ? ranked.map((c) =>
+          suggestNavaids(c, navaids).map((n) => `${n.ident} (${n.type})`),
+        )
+      : undefined;
+
   const choice = deps.client
     ? await chooseWithLlm(
         brief,
@@ -86,6 +101,7 @@ export async function generateFlight(
         deps.client,
         deps.excludeRecent ?? [],
         weather,
+        navaidsByChain,
       )
     : fallbackChoice(ranked);
 
@@ -99,6 +115,7 @@ export async function generateFlight(
       relaxed,
       weather,
       deps.now ?? new Date(),
+      navaids,
     ),
   };
 }
@@ -153,6 +170,7 @@ async function chooseWithLlm(
   client: LlmClient,
   excludeRecent: string[],
   weather: Map<string, AirportWeather>,
+  navaidsByChain?: string[][],
 ): Promise<Choice> {
   let previousError: string | undefined;
 
@@ -165,6 +183,7 @@ async function chooseWithLlm(
         aircraft,
         rules,
         excludeRecent,
+        navaidsByChain,
         weather,
         previousError,
       });
@@ -242,11 +261,20 @@ function enrich(
   relaxed: string[],
   weather: Map<string, AirportWeather>,
   now: Date,
+  navaids: readonly Navaid[],
 ): Flight {
   const chainLegs = choice.chain.legs;
   const singleLeg = chainLegs.length === 1;
 
-  const legs: FlightLeg[] = chainLegs.map((leg) => {
+  // Scenic waypoints (VFR only): resolve the model's flat list against the
+  // navaid dataset and each leg's corridor; off-course ones are dropped.
+  // IFR routing is SimBrief's job, so non-VFR legs carry none.
+  const waypointsByLeg =
+    rules === "VFR"
+      ? assignWaypoints(choice.waypoints, chainLegs, navaids)
+      : chainLegs.map(() => []);
+
+  const legs: FlightLeg[] = chainLegs.map((leg, i) => {
     const o = leg.origin;
     const d = leg.destination;
     const distNm = Math.round(greatCircleNm(o, d));
@@ -262,8 +290,7 @@ function enrich(
       to_lon: d.lon,
       dist_nm: distNm,
       cruise_level: cruiseLevelFor(rules, aircraft, distNm, track),
-      // Scenic waypoints are single-leg only; multi-leg hops fly direct.
-      waypoints: singleLeg ? validateWaypoints(choice.waypoints, rules) : [],
+      waypoints: waypointsByLeg[i] ?? [],
     };
   });
 
@@ -327,33 +354,6 @@ function goldenHourFor(
     arrive_utc: sun.goldenStart.toISOString(),
     sunset_utc: sun.sunset.toISOString(),
   };
-}
-
-/**
- * Validate model VFR waypoints. We have no navaid dataset, so we accept ONLY
- * clean decimal "lat,lon" strings (documented limitation — named navaids are
- * dropped); invalid ones are discarded. IFR routing is SimBrief's job (Phase 3),
- * so non-VFR carries no waypoints. All-dropped → empty = great-circle direct.
- */
-function validateWaypoints(rawWaypoints: string[], rules: Rules): string[] {
-  if (rules !== "VFR") return [];
-  const out: string[] = [];
-  for (const w of rawWaypoints) {
-    const ll = parseLatLon(w);
-    if (ll) out.push(`${ll.lat},${ll.lon}`);
-  }
-  return out;
-}
-
-/** Parse "lat,lon" or "lat lon" decimals; returns null if not a valid pair. */
-function parseLatLon(s: string): LatLon | null {
-  const parts = s.trim().split(/[,\s]+/);
-  if (parts.length !== 2) return null;
-  const lat = Number(parts[0]);
-  const lon = Number(parts[1]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return { lat, lon };
 }
 
 /** Default cruise level: hemispheric-legal VFR feet, or a plausible IFR FL. */

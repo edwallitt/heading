@@ -50,10 +50,50 @@ export function readPermalink(): Flight | null {
     if (!data || typeof data !== "object") return null;
     const { v, f } = data as { v?: number; f?: unknown };
     if (v !== VERSION || !isFlightLike(f)) return null;
-    return f;
+    return normalizeWaypoints(f);
   } catch {
     return null;
   }
+}
+
+type LegWaypoint = Flight["legs"][number]["waypoints"][number];
+
+/**
+ * Normalise each leg's scenic waypoints to the structured shape. Links minted
+ * before waypoints carried coordinates encode them as "lat,lon" strings —
+ * convert those to user waypoints; keep valid objects; drop anything else.
+ */
+function normalizeWaypoints(flight: Flight): Flight {
+  let userCount = 0;
+  const legs = flight.legs.map((leg) => {
+    const raw: unknown = leg.waypoints;
+    const waypoints: LegWaypoint[] = (Array.isArray(raw) ? raw : []).flatMap(
+      (w: unknown): LegWaypoint[] => {
+        if (typeof w === "string") {
+          const parts = w.split(/[,\s]+/).map(Number);
+          const [lat, lon] = parts;
+          if (parts.length !== 2 || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return [];
+          }
+          return [{ ident: `WP${++userCount}`, kind: "user", lat: lat!, lon: lon! }];
+        }
+        if (w && typeof w === "object") {
+          const wp = w as LegWaypoint;
+          if (
+            typeof wp.ident === "string" &&
+            (wp.kind === "navaid" || wp.kind === "user") &&
+            Number.isFinite(wp.lat) &&
+            Number.isFinite(wp.lon)
+          ) {
+            return [wp];
+          }
+        }
+        return [];
+      },
+    );
+    return { ...leg, waypoints };
+  });
+  return { ...flight, legs };
 }
 
 /** Drop the hash without a reload or a new history entry. */

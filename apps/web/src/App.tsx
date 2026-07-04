@@ -153,9 +153,9 @@ export function App() {
       ) : live?.status === "no_flight" ? (
         <NoFlightPanel reason={live.reason} onSurprise={surprise} />
       ) : live?.status === "ok" ? (
-        <ResultCard flight={live.flight} onAgain={again} regenerating={false} isShared={false} />
+        <ResultCard flight={live.flight} onAgain={again} isShared={false} />
       ) : shared ? (
-        <ResultCard flight={shared} onAgain={again} regenerating={false} isShared />
+        <ResultCard flight={shared} onAgain={again} isShared />
       ) : null}
 
       <footer className="mt-auto pt-4">

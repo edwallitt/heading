@@ -1,4 +1,5 @@
 import type { AircraftProfile } from "../data/aircraft.js";
+import { NOTABLE_HOOKS } from "../data/notable.js";
 import type { CandidateChain } from "../lib/candidatePairs.js";
 import { describeWeather } from "../weather/metar.js";
 import type { AirportWeather, Brief, Rules } from "../types.js";
@@ -12,6 +13,11 @@ export interface BuildPromptInput {
   rules: Rules;
   /** Idents to avoid if possible (anti-repeat; Phase 5 wires the source). */
   excludeRecent?: string[];
+  /**
+   * Per-chain scenic navaid suggestions, aligned with `chains` by index (VFR
+   * briefs only). Each entry is prompt-ready, e.g. `"WIL (VOR-DME)"`.
+   */
+  navaidsByChain?: string[][];
   /** Latest METARs by ident, for the stations in the pool that reported. */
   weather?: Map<string, AirportWeather>;
   /** On a retry, the validation error from the previous attempt. */
@@ -24,9 +30,10 @@ You are given a numbered list of REAL, pre-validated trips. Each trip is one or 
 1. Pick the ONE trip that best fits the brief, BY ITS INDEX. You must not invent airports — only choose from the list.
 2. Write a short, evocative overview of the whole trip (80 words max). For a multi-leg trip, give a sense of the journey across its stops.
 3. Write a one-line reason it fits the brief.
-4. For a single-leg VFR flight only, you MAY suggest 2–5 scenic waypoints, each a real navaid identifier or a decimal "lat,lon" string. Multi-leg trips fly direct between stops — omit waypoints.
-5. Live METAR weather may be listed per trip and per airport. Factor it into your pick — for a VFR brief strongly prefer trips whose stops are VFR or MVFR — and you may weave the listed conditions (wind, visibility, ceiling) into the overview. Never invent weather that is not listed.
-6. For an IFR jet brief, every stop is pre-screened for jet operations (paved runway at or above the aircraft minimum, and airline-service airports with published instrument procedures — ILS/RNAV approaches, SIDs and STARs). Among the candidates, prefer stops with longer runways and larger, better-equipped airports; the runway length listed per stop is its longest paved runway.
+4. For a VFR trip you MAY suggest scenic waypoints — for any leg, including each leg of a multi-leg trip. Prefer navaid identifiers from the trip's "navaids:" list (each is pre-checked to sit near that trip's route); a decimal "lat,lon" string close to a leg's course also works. Give up to 4 per leg (12 total), as ONE flat list in fly order — each waypoint is matched to the leg it sits along automatically, and anything too far off course is dropped. Omit waypoints for IFR.
+5. A trip may list "notable:" hooks — short facts about a famous or dramatic stop (its approach, setting, or claim to fame). When you pick such a trip, weave the hook naturally into the overview. Never invent these; use only what is listed.
+6. Live METAR weather may be listed per trip and per airport. Factor it into your pick — for a VFR brief strongly prefer trips whose stops are VFR or MVFR — and you may weave the listed conditions (wind, visibility, ceiling) into the overview. Never invent weather that is not listed.
+7. For an IFR jet brief, every stop is pre-screened for jet operations (paved runway at or above the aircraft minimum, and airline-service airports with published instrument procedures — ILS/RNAV approaches, SIDs and STARs). Among the candidates, prefer stops with longer runways and larger, better-equipped airports; the runway length listed per stop is its longest paved runway.
 
 Return JSON ONLY — no prose, no markdown, no code fences — matching exactly:
 {"choiceIndex": <number>, "overview": <string>, "why_this": <string>, "waypoints": <string[] | omitted>}
@@ -50,6 +57,7 @@ export function buildPrompt(input: BuildPromptInput): {
     aircraft,
     rules,
     excludeRecent,
+    navaidsByChain,
     weather,
     previousError,
   } = input;
@@ -69,6 +77,13 @@ export function buildPrompt(input: BuildPromptInput): {
       const perLeg = chain.legs.map((l) => `${Math.round(l.distanceNm)}`).join("+");
       const tags =
         [...new Set(chain.airports.flatMap((a) => a.vibe_tags))].join(",") || "—";
+      // Curated hooks for any famous/dramatic stop on this chain — raw material
+      // for the overview (buildPrompt never invents these; they come from the
+      // hand-written notable list).
+      const notable = chain.airports
+        .map((a) => NOTABLE_HOOKS[a.ident])
+        .filter(Boolean)
+        .join("; ");
       const legWord = chain.legs.length === 1 ? "leg" : "legs";
       // Per-stop METAR categories, for the stations in this chain that reported.
       const wx = chain.airports
@@ -78,10 +93,13 @@ export function buildPrompt(input: BuildPromptInput): {
         })
         .filter(Boolean)
         .join(", ");
+      const navs = navaidsByChain?.[i];
       return (
         `[${i}] ${route} · ${chain.legs.length} ${legWord} · ` +
         `${perLeg} NM (${Math.round(chain.totalDistanceNm)} total) · vibe: ${tags}` +
-        (wx ? ` · wx: ${wx}` : "")
+        (wx ? ` · wx: ${wx}` : "") +
+        (navs && navs.length > 0 ? ` · navaids: ${navs.join(", ")}` : "") +
+        (notable ? ` · notable: ${notable}` : "")
       );
     })
     .join("\n");

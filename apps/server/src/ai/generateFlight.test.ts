@@ -5,6 +5,7 @@ import type {
   Airport,
   AirportWeather,
   Brief,
+  Navaid,
   Region,
   VibeTag,
 } from "../types.js";
@@ -40,6 +41,16 @@ function line(
 }
 
 const index = buildAirportIndex(line("EU", "europe", 4, ["mountain"]));
+
+/** Minimal synthetic navaid for the injectable scenic-waypoint seam. */
+const navaid = (ident: string, lat: number, lon: number): Navaid => ({
+  ident,
+  name: `${ident} Beacon`,
+  type: "VOR",
+  lat,
+  lon,
+  country: "XX",
+});
 
 const brief = (over: Partial<Brief> = {}): Brief => ({
   aircraft: "turboprop",
@@ -142,15 +153,32 @@ describe("generateFlight — no-flight + enrichment", () => {
     expect(Number(res.flight.cruise_level) % 1000).toBe(500);
   });
 
-  it("keeps only valid lat/lon VFR waypoints and drops named navaids", async () => {
+  it("resolves navaid idents + lat/lon waypoints on the corridor, drops off-route ones", async () => {
+    // Chain 0 is EU0 (50°N) → EU1 (51.67°N) along lon 0. MID sits on that
+    // course; "10,10" parses but is a continent away; "junk!" parses as nothing.
     const m = mockClient([
-      ok(0, { waypoints: ["46.5,7.5", "DVOR", "999,999"] }),
+      ok(0, { waypoints: ["MID", "50.5,0.05", "10,10", "junk!"] }),
     ]);
-    const res = await generateFlight(brief(), { index, client: m.client });
+    const res = await generateFlight(brief(), {
+      index,
+      client: m.client,
+      navaids: [navaid("MID", 50.8, 0.1), navaid("FAR", 10.1, 10.1)],
+    });
 
     expect(res.status).toBe("ok");
     if (res.status !== "ok") return;
-    expect(res.flight.legs[0]!.waypoints).toEqual(["46.5,7.5"]);
+    const wps = res.flight.legs[0]!.waypoints;
+    // Fly order (distance from the leg origin): the 50.5°N point, then MID.
+    expect(wps.map((w) => w.ident)).toEqual(["WP1", "MID"]);
+    expect(wps[0]).toMatchObject({ kind: "user", lat: 50.5, lon: 0.05 });
+    expect(wps[1]).toMatchObject({
+      kind: "navaid",
+      name: "MID Beacon",
+      type: "VOR",
+      lat: 50.8,
+    });
+    // The prompt offered the on-corridor navaid for the model to pick from.
+    expect(m.inputs[0]!.user).toContain("navaids: MID (VOR)");
   });
 
   it("computes distance and block time from our libs, not the model", async () => {
@@ -363,5 +391,31 @@ describe("generateFlight — multi-leg", () => {
     expect(res.flight.est_block_min).toBe(
       Math.round(perLeg.reduce((a, b) => a + b, 0)),
     );
+  });
+
+  it("assigns scenic waypoints to the leg they sit along on a multi-leg trip", async () => {
+    // Airports at 40°N / 46.93°N / 53.87°N along lon 0. AAA and 50.4°N belong
+    // to whichever leg spans ~50°N; 43.5°N belongs to the other.
+    const m = mockClient([
+      ok(0, { waypoints: ["43.5,0.2", "AAA", "50.4,-0.2"] }),
+    ]);
+    const res = await generateFlight(
+      brief({ timeBand: "3-5hr", vibe: "any", legCount: 2 }),
+      { index: chainIndex, client: m.client, navaids: [navaid("AAA", 50.2, 0.15)] },
+    );
+
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    const legs = res.flight.legs;
+    expect(legs).toHaveLength(2);
+
+    const spans = (l: (typeof legs)[number], lat: number) =>
+      Math.min(l.from_lat, l.to_lat) < lat && lat < Math.max(l.from_lat, l.to_lat);
+    const north = legs.find((l) => spans(l, 50.2))!;
+    const south = legs.find((l) => spans(l, 43.5))!;
+    expect(north.waypoints.map((w) => w.ident)).toContain("AAA");
+    expect(north.waypoints).toHaveLength(2); // AAA + the 50.4°N user point
+    expect(south.waypoints).toHaveLength(1);
+    expect(south.waypoints[0]!.kind).toBe("user");
   });
 });

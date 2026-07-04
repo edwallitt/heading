@@ -12,14 +12,6 @@ const reducedMotion =
 
 type LngLat = [number, number];
 
-/** Parse a VFR "lat,lon" waypoint into a [lng, lat] pair. */
-function parseWaypoint(s: string): LngLat | null {
-  const parts = s.split(/[,\s]+/).map(Number);
-  if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) return null;
-  const [lat, lon] = parts;
-  return [lon!, lat!];
-}
-
 /** Initial great-circle bearing (deg, clockwise from north) a → b. */
 function bearing([lon1, lat1]: LngLat, [lon2, lat2]: LngLat): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -64,6 +56,23 @@ function labelMarker(text: string, lit: boolean): HTMLElement {
   return el;
 }
 
+/** A tiny rotated-square fix marker for a scenic navaid waypoint. */
+function waypointMarker(): HTMLElement {
+  const el = document.createElement("div");
+  el.style.cssText =
+    "width:8px;height:8px;background:#0E1419;border:1.5px solid #8696A3;transform:rotate(45deg);box-sizing:border-box;";
+  return el;
+}
+
+/** A quieter, smaller chip labelling a navaid waypoint by ident. */
+function waypointLabel(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.textContent = text;
+  el.style.cssText =
+    'font-family:"Chakra Petch",system-ui,sans-serif;font-size:9px;font-weight:600;letter-spacing:0.05em;line-height:1;white-space:nowrap;padding:2px 4px;border-radius:3px;color:#8696A3;background:rgba(14,20,25,0.75);border:1px solid #2A3742;pointer-events:none;';
+  return el;
+}
+
 /**
  * The route on an OpenFreeMap dark base — origin/destination nodes, any VFR
  * waypoints, and the magenta course line with a heading dart at its midpoint.
@@ -80,13 +89,19 @@ export function RouteMap({ flight }: { flight: Flight }) {
     if (!container || !first) return;
 
     // Per-leg geometry: endpoints plus any VFR scenic waypoints on that leg.
-    const legPaths = legs.map((leg) => ({
-      from: [leg.from_lon, leg.from_lat] as LngLat,
-      to: [leg.to_lon, leg.to_lat] as LngLat,
-      mids: leg.waypoints
-        .map(parseWaypoint)
-        .filter((c): c is LngLat => c !== null),
-    }));
+    const legPaths = legs.map((leg) => {
+      const waypoints = leg.waypoints.filter(
+        (w) => Number.isFinite(w.lat) && Number.isFinite(w.lon),
+      );
+      return {
+        from: [leg.from_lon, leg.from_lat] as LngLat,
+        to: [leg.to_lon, leg.to_lat] as LngLat,
+        mids: waypoints.map((w) => [w.lon, w.lat] as LngLat),
+        // Named navaids get a fix marker + ident chip; raw points stay as
+        // unlabelled bends in the course line.
+        fixes: waypoints.filter((w) => w.kind === "navaid"),
+      };
+    });
 
     // One continuous course line: origin, then each leg's mids + arrival. A shared
     // airport (leg N arrival = leg N+1 departure) appears once.
@@ -145,6 +160,23 @@ export function RouteMap({ flight }: { flight: Flight }) {
         })
           .setLngLat(stop.coord)
           .addTo(map);
+      }
+
+      // Scenic navaid fixes: a small square + ident chip, quieter than stops.
+      for (const lp of legPaths) {
+        for (const fix of lp.fixes) {
+          const coord: LngLat = [fix.lon, fix.lat];
+          new maplibregl.Marker({ element: waypointMarker() })
+            .setLngLat(coord)
+            .addTo(map);
+          new maplibregl.Marker({
+            element: waypointLabel(fix.ident),
+            anchor: "top",
+            offset: [0, 8],
+          })
+            .setLngLat(coord)
+            .addTo(map);
+        }
       }
 
       // A heading dart at the midpoint of each leg, pointing along that leg.

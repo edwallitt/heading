@@ -1,6 +1,5 @@
-import type { Airport, Flight } from "../types.js";
+import type { Airport, Flight, Waypoint } from "../types.js";
 import { findAirport } from "./airports.js";
-import { resolveLegWaypoints, type ResolvedWaypoint } from "./waypoints.js";
 
 /**
  * MSFS 2024 VFR flight-plan (.pln) writer — FSX-derived AceXML, loaded via
@@ -89,7 +88,9 @@ export function buildVfrPln(flight: Flight): string | null {
   lines.push(...airportWaypoint(dep, depLLA));
   for (const leg of legs) {
     const legCruiseFt = Number(leg.cruise_level) || planCruiseFt;
-    for (const wp of resolveLegWaypoints(leg, flight.rules)) {
+    // Waypoints arrive fully resolved from generation (idents + coordinates),
+    // so the writer never touches the navaid dataset.
+    for (const wp of leg.waypoints) {
       lines.push(...enrouteWaypoint(wp, legCruiseFt));
     }
     const arrival = requireAirport(leg.to_icao);
@@ -124,7 +125,7 @@ function airportWaypoint(airport: Airport, lla: string): string[] {
 }
 
 /** <ATCWaypoint> for an en-route navaid or user waypoint, at cruise altitude. */
-function enrouteWaypoint(wp: ResolvedWaypoint, cruiseFt: number): string[] {
+function enrouteWaypoint(wp: Waypoint, cruiseFt: number): string[] {
   const id = ident(wp.ident);
   const lla = worldPosition(wp.lat, wp.lon, cruiseFt);
 
@@ -140,7 +141,7 @@ function enrouteWaypoint(wp: ResolvedWaypoint, cruiseFt: number): string[] {
   // navaid: VOR family (VOR/VOR-DME/VORTAC/TACAN) → "VOR", NDB family → "NDB".
   // ICAORegion is omitted (not in our dataset); MSFS resolves by ident +
   // WorldPosition, and the coordinates preserve the route geometry regardless.
-  const atcType = NDB_FAMILY.has(wp.type) ? "NDB" : "VOR";
+  const atcType = NDB_FAMILY.has(wp.type ?? "") ? "NDB" : "VOR";
   return [
     `${i(2)}<ATCWaypoint id="${id}">`,
     `${i(3)}<ATCWaypointType>${atcType}</ATCWaypointType>`,

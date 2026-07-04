@@ -5,9 +5,10 @@ import type { Flight } from "../types.js";
 import { buildVfrPln } from "./pln.js";
 
 /**
- * Fixed, deterministic flight (no LLM call). Its airport/navaid coordinates come
- * from the committed datasets, so the .pln output is reproducible — this golden
- * test locks the exact MSFS .pln format against silent regression.
+ * Fixed, deterministic flight (no LLM call). Airport coordinates come from the
+ * committed dataset; waypoints are pre-resolved (as generation now emits them),
+ * with WIL matching the baked navaid — this golden test locks the exact MSFS
+ * .pln format against silent regression.
  */
 const GOLDEN_FLIGHT: Flight = {
   brief: {
@@ -36,7 +37,17 @@ const GOLDEN_FLIGHT: Flight = {
       to_lon: 9.88,
       dist_nm: 108,
       cruise_level: "5500",
-      waypoints: ["GVA", "46.8,8.5"],
+      waypoints: [
+        {
+          ident: "WIL",
+          kind: "navaid",
+          type: "VOR-DME",
+          name: "Willisau",
+          lat: 47.17829895019531,
+          lon: 7.905920028686523,
+        },
+        { ident: "WP1", kind: "user", lat: 46.8, lon: 8.5 },
+      ],
     },
   ],
   relaxed: [],

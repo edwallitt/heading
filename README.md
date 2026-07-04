@@ -60,6 +60,12 @@ from the server, never hardcoded in the UI.
 - **Route map** (MapLibre GL on OpenFreeMap's dark style) drawn as instrumentation:
   a magenta course line with a heading dart on each leg, every stop labelled, fit
   to the route.
+- **Scenic VFR routing via real navaids** — for every VFR leg (multi-leg
+  included), the prompt offers Opus real VOR/NDB beacons that sit near that
+  trip's route (baked OurAirports navaid data), and whatever it picks is
+  validated geometrically: each waypoint is assigned to the leg it detours
+  least, and anything off-course is dropped. Named fixes show on the map, in
+  the card ("via WIL · WP1"), and as proper VOR/NDB waypoints in the `.pln`.
 - **Live weather** — the latest METAR for every stop (from
   [aviationweather.gov](https://aviationweather.gov), no key), decoded to a
   flight-category badge plus wind/vis/ceiling/temp. The model sees the same

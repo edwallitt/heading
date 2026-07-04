@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Airport } from "../types.js";
 import { AirportIndex } from "./airportIndex.js";
+import { applyNotableTags } from "./notable.js";
 
 /**
  * Boot-time load of the baked reference data into a typed in-memory index (§8).
@@ -25,7 +26,9 @@ function loadAirports(): Airport[] {
         "Run the preprocessing step first: pnpm --filter server build-airports",
     );
   }
-  return JSON.parse(raw) as Airport[];
+  // Curated "notable" tags live outside the baked asset (they change on a
+  // different cadence than the airport pipeline), so apply them at load.
+  return applyNotableTags(JSON.parse(raw) as Airport[]);
 }
 
 /** The in-memory airport index, loaded once at module load. */

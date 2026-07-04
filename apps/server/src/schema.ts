@@ -17,7 +17,7 @@ export const briefSchema = z.object({
     "anywhere",
   ]),
   rules: z.enum(["VFR", "IFR", "any"]),
-  vibe: z.enum(["mountain", "coastal", "urban", "any"]),
+  vibe: z.enum(["mountain", "coastal", "urban", "notable", "any"]),
   aircraft: z.enum(["small_prop", "turboprop", "regional_jet", "airliner"]),
   // 1–3 legs. A numeric union (not an enum) so the value stays a number through
   // to the block-time math; `.default(1)` lets a client omit it (→ single hop)

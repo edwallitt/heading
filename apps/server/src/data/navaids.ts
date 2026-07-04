@@ -6,9 +6,9 @@ import type { LatLon, Navaid } from "../types.js";
 export type { Navaid } from "../types.js";
 
 /**
- * Boot-time load of the baked navaid set into an in-memory ident index, mirroring
- * the airport loader. Pure lookup utility — not wired into generateFlight or any
- * export; it's here for the Phase 3 .pln writer to resolve named waypoints.
+ * Boot-time load of the baked navaid set into an in-memory ident index,
+ * mirroring the airport loader. Feeds scenic-waypoint generation: candidate
+ * suggestion in the prompt and ident resolution in `lib/scenicWaypoints`.
  */
 const generatedPath = fileURLToPath(
   new URL("./navaids.generated.json", import.meta.url),
@@ -28,6 +28,9 @@ function loadNavaids(): Navaid[] {
 }
 
 const all: Navaid[] = loadNavaids();
+
+/** The full baked navaid set (read-only; injectable seam for tests). */
+export const allNavaids: readonly Navaid[] = all;
 
 const byIdent = new Map<string, Navaid[]>();
 for (const n of all) {

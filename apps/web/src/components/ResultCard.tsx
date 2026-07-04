@@ -76,12 +76,11 @@ function downloadPln(flight: Flight) {
 interface ResultCardProps {
   flight: Flight;
   onAgain: () => void;
-  regenerating: boolean;
   /** True when rendered from a pasted permalink (no live .pln present). */
   isShared: boolean;
 }
 
-export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCardProps) {
+export function ResultCard({ flight, onAgain, isShared }: ResultCardProps) {
   const legs = flight.legs;
   const leg = legs[0];
   const singleLeg = legs.length === 1;
@@ -157,6 +156,16 @@ export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCa
               </div>
             )}
             <RouteMap flight={flight} />
+            {singleLeg && leg.waypoints.length > 0 ? (
+              <div className="text-xs text-mute">
+                <span className="placard mr-2">Via</span>
+                <span className="font-instrument tracking-wide">
+                  {leg.waypoints
+                    .map((w) => (w.name ? `${w.ident} (${w.name})` : w.ident))
+                    .join(" · ")}
+                </span>
+              </div>
+            ) : null}
             {!singleLeg ? (
               <div className="divide-y divide-line overflow-hidden rounded-lg border border-line text-sm">
                 {legs.map((l, idx) => (
@@ -167,6 +176,12 @@ export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCa
                     <span className="font-instrument tracking-wide text-chalk">
                       <span className="text-mute">{idx + 1}.</span> {l.from_icao}{" "}
                       <span className="text-course/70">→</span> {l.to_icao}
+                      {l.waypoints.length > 0 ? (
+                        <span className="text-xs text-mute">
+                          {" "}
+                          via {l.waypoints.map((w) => w.ident).join(", ")}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="tabular-nums text-mute">
                       {l.dist_nm.toLocaleString()} NM · {formatCruise(l.cruise_level)}
@@ -298,12 +313,11 @@ export function ResultCard({ flight, onAgain, regenerating, isShared }: ResultCa
 
           <Button
             variant="ghost"
-            icon={<RotateCw size={15} className={regenerating ? "animate-sweep" : ""} />}
+            icon={<RotateCw size={15} />}
             onClick={onAgain}
-            disabled={regenerating}
             className="self-start"
           >
-            {regenerating ? "Dispatching…" : "Generate again"}
+            Generate again
           </Button>
         </div>
       </div>

@@ -25,8 +25,12 @@ export type Region =
   | "oceania"
   | "caribbean";
 
-/** Vibe tags computed at build time (cheap heuristics — §4). Additive per airport. */
-export type VibeTag = "mountain" | "coastal" | "urban";
+/**
+ * Vibe tags. "mountain"/"coastal"/"urban" are computed at build time (cheap
+ * heuristics — §4); "notable" is a curated tag applied at load from a hand-
+ * written list (data/notable.ts). Additive per airport.
+ */
+export type VibeTag = "mountain" | "coastal" | "urban" | "notable";
 
 /**
  * Time-available dial (§3). Maps to a block-time budget in minutes.
@@ -166,6 +170,24 @@ export interface GoldenHour {
   sunset_utc: string;
 }
 
+/**
+ * A resolved VFR scenic waypoint on a leg: a named navaid (validated against
+ * the baked dataset and the leg's corridor at generation time) or a raw
+ * lat/lon point. Coordinates are always present, so the map and the .pln
+ * writer never re-resolve idents.
+ */
+export interface Waypoint {
+  /** Navaid ident (e.g. "WIL"), or "WP1", "WP2"… for raw lat/lon points. */
+  ident: string;
+  kind: "navaid" | "user";
+  lat: number;
+  lon: number;
+  /** Navaid name (e.g. "Willisau") — navaid waypoints only. */
+  name?: string;
+  /** Navaid type (e.g. "VOR-DME", "NDB") — navaid waypoints only. */
+  type?: string;
+}
+
 /** One leg of a flight (§8). A flight has one leg per hop (1–3). */
 export interface FlightLeg {
   from_icao: string;
@@ -185,8 +207,8 @@ export interface FlightLeg {
    * and a westbound leg of the same trip take different legal altitudes.
    */
   cruise_level: string;
-  /** VFR scenic waypoints (validated lat/lon strings); empty = great-circle direct. */
-  waypoints: string[];
+  /** VFR scenic waypoints (resolved, on-corridor); empty = great-circle direct. */
+  waypoints: Waypoint[];
 }
 
 /**

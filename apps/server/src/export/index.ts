@@ -4,7 +4,6 @@ import { buildSimbriefUrl } from "./simbrief.js";
 
 export { buildSimbriefUrl } from "./simbrief.js";
 export { buildVfrPln } from "./pln.js";
-export { resolveWaypoints, type ResolvedWaypoint } from "./waypoints.js";
 
 /** Suggested .pln download filename, e.g. "LSZG-LSZS.pln" or "LSZG-LSZS-LIRF.pln". */
 export function plnFilename(flight: Flight): string {

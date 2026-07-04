@@ -25,11 +25,11 @@
                 <ICAOIdent>LSZG</ICAOIdent>
             </ICAO>
         </ATCWaypoint>
-        <ATCWaypoint id="GVA">
+        <ATCWaypoint id="WIL">
             <ATCWaypointType>VOR</ATCWaypointType>
-            <WorldPosition>N46° 15' 14.04",E6° 7' 55.99",+005500.00</WorldPosition>
+            <WorldPosition>N47° 10' 41.88",E7° 54' 21.31",+005500.00</WorldPosition>
             <ICAO>
-                <ICAOIdent>GVA</ICAOIdent>
+                <ICAOIdent>WIL</ICAOIdent>
             </ICAO>
         </ATCWaypoint>
         <ATCWaypoint id="WP1">
