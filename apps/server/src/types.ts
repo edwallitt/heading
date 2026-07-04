@@ -21,6 +21,7 @@ export type Region =
   | "north_america"
   | "south_america"
   | "europe"
+  | "africa"
   | "asia"
   | "oceania"
   | "caribbean";

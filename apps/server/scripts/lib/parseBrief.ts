@@ -56,6 +56,8 @@ const REGION_ALIASES: Record<string, Region | "anywhere"> = {
   sa: "south_america",
   europe: "europe",
   eu: "europe",
+  africa: "africa",
+  af: "africa",
   asia: "asia",
   oceania: "oceania",
   caribbean: "caribbean",
@@ -74,6 +76,9 @@ const VIBE_ALIASES: Record<string, VibeTag | "any"> = {
   city: "urban",
   "city skylines": "urban",
   skylines: "urban",
+  notable: "notable",
+  famous: "notable",
+  "bucket list": "notable",
 };
 
 const RULES_ALIASES: Record<string, Rules | "any"> = {

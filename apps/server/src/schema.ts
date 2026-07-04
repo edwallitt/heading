@@ -11,6 +11,7 @@ export const briefSchema = z.object({
     "north_america",
     "south_america",
     "europe",
+    "africa",
     "asia",
     "oceania",
     "caribbean",

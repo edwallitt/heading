@@ -48,6 +48,21 @@ export const NOTABLE_HOOKS: Record<string, string> = {
   NTAA: "Papeete, Tahiti — a lagoon approach across French Polynesia",
   YSSY: "Sydney — the harbour arrival past the Opera House and the Bridge",
   YMHB: "Hobart — the gateway to Tasmania, arriving over the Derwent",
+  // Africa + its islands (restored to the dataset July 2026).
+  FACT: "Cape Town — the arrival under Table Mountain, the Cape of Good Hope beyond",
+  HKJK: "Nairobi — the safari gateway on the edge of the Rift Valley and its national park",
+  HTKJ: "Kilimanjaro — an approach across the savanna beneath Africa's highest peak",
+  FVFA: "Victoria Falls — arrive beside the mile-wide curtain of the Zambezi",
+  HAAB: "Addis Ababa — one of the world's highest major airports, high on the Ethiopian plateau",
+  FYWB: "Walvis Bay — where the red dunes of the Namib run straight into the Atlantic",
+  FMEE: "Réunion (Roland Garros) — a volcanic-island approach beneath the smoking Piton de la Fournaise",
+  FMMI: "Antananarivo — the highland gateway to Madagascar's singular wilds",
+  FIMP: "Mauritius — a lagoon-ringed Indian Ocean island approach",
+  HTZA: "Zanzibar — a spice-island arrival off the Tanzanian coast",
+  GVAC: "Sal, Cape Verde — a mid-Atlantic island, the old transatlantic staging post",
+  GCLP: "Gran Canaria — a Canary Islands hub in the Atlantic off the Saharan coast",
+  GMMN: "Casablanca — the Atlantic-coast gateway to Morocco",
+  DNMM: "Lagos — West Africa's teeming megacity hub on the Gulf of Guinea",
 };
 
 /** Idents carrying the curated "notable" tag/hook. */

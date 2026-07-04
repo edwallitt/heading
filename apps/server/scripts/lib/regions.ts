@@ -5,8 +5,8 @@ import type { Region } from "../../src/types.js";
  * regions (§3). Committed mapping — no external dataset.
  *
  * Notes / deliberate limitations:
- * - Africa (AF) and Antarctica (AN) have no Heading region and are dropped at
- *   build time (the brief offers no Africa/Antarctica filter).
+ * - Antarctica (AN) has no Heading region and is dropped at build time (no
+ *   scheduled service, no brief filter). Africa (AF) is a full region.
  * - Caribbean is a sub-bucket of the NA continent, selected by ISO country so
  *   island-hopping is its own region (§3). Mainland Central-American countries
  *   (e.g. Belize) stay in north_america.
@@ -19,9 +19,10 @@ const CONTINENT_REGION: Partial<Record<Continent, Region>> = {
   NA: "north_america",
   SA: "south_america",
   EU: "europe",
+  AF: "africa",
   AS: "asia",
   OC: "oceania",
-  // AF / AN: intentionally absent → dropped.
+  // AN: intentionally absent → dropped (no scheduled service).
 };
 
 /** ISO 3166-1 alpha-2 codes treated as Caribbean (island nations/territories). */
@@ -32,7 +33,7 @@ const CARIBBEAN_ISO = new Set<string>([
 ]);
 
 /**
- * Resolve an airport's region, or null if it has none (Africa/Antarctica, or an
+ * Resolve an airport's region, or null if it has none (Antarctica, or an
  * unrecognised/empty continent — counted and dropped by the caller).
  */
 export function resolveRegion(

@@ -35,6 +35,7 @@ export const REGION_OPTIONS: DialOption<Region>[] = [
   { value: "north_america", label: "N. America" },
   { value: "south_america", label: "S. America" },
   { value: "europe", label: "Europe" },
+  { value: "africa", label: "Africa" },
   { value: "asia", label: "Asia" },
   { value: "oceania", label: "Oceania" },
   { value: "caribbean", label: "Caribbean" },
