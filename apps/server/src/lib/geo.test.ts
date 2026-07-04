@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { boundingBox, greatCircleNm, inBoundingBox } from "./geo.js";
+import {
+  boundingBox,
+  greatCircleNm,
+  inBoundingBox,
+  segmentDistanceNm,
+} from "./geo.js";
 
 const EGLL = { lat: 51.4706, lon: -0.461941 };
 const LFPG = { lat: 49.0097, lon: 2.5479 };
@@ -26,6 +31,39 @@ describe("greatCircleNm", () => {
       60,
       0,
     );
+  });
+});
+
+describe("segmentDistanceNm", () => {
+  const O = { lat: 0, lon: 0 };
+
+  it("returns the perpendicular distance when the foot is on the segment", () => {
+    // Segment runs N–S through lon 0.1° at the equator; closest point is (0, 0.1).
+    const d = segmentDistanceNm(O, { lat: -1, lon: 0.1 }, { lat: 1, lon: 0.1 });
+    expect(d).toBeCloseTo(6, 1); // 0.1° × 60 NM
+  });
+
+  it("clamps to the nearer endpoint when the foot is past the segment", () => {
+    // Segment lies to the east (lon 1°→2°) at the equator; closest is the lon-1 end.
+    const d = segmentDistanceNm(O, { lat: 0, lon: 1 }, { lat: 0, lon: 2 });
+    expect(d).toBeCloseTo(60, 0); // 1° × 60 NM
+  });
+
+  it("is zero when the point lies on the segment", () => {
+    expect(segmentDistanceNm(O, { lat: -1, lon: 0 }, { lat: 1, lon: 0 })).toBeCloseTo(0, 5);
+  });
+
+  it("treats a degenerate (zero-length) segment as a point", () => {
+    // a === b: falls back to the endpoint distance, no divide-by-zero.
+    const d = segmentDistanceNm(O, { lat: 0, lon: 0.5 }, { lat: 0, lon: 0.5 });
+    expect(d).toBeCloseTo(30, 0); // 0.5° × 60 NM
+  });
+
+  it("handles a segment spanning the antimeridian without blowing up", () => {
+    // Point at lon 179.9; segment straddles ±180. Should read ~a few NM, not ~half the globe.
+    const p = { lat: 0, lon: 179.9 };
+    const d = segmentDistanceNm(p, { lat: -1, lon: 179.95 }, { lat: 1, lon: -179.95 });
+    expect(d).toBeLessThan(10);
   });
 });
 

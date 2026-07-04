@@ -14,6 +14,11 @@ import { fileURLToPath } from "node:url";
 import { greatCircleNm } from "../src/lib/geo.js";
 import type { Airport, Region, VibeTag } from "../src/types.js";
 import { MAJOR_CITIES } from "./lib/cities.js";
+import {
+  type CoastlineIndex,
+  buildCoastlineIndex,
+  distanceToCoastNm,
+} from "./lib/coastline.js";
 import { headerIndex, parseCsv } from "./lib/csv.js";
 import { resolveRegion } from "./lib/regions.js";
 
@@ -24,6 +29,7 @@ const OUT_PATH = fileURLToPath(
 
 const AIRPORTS_CSV = RAW_DIR + "airports.csv";
 const RUNWAYS_CSV = RAW_DIR + "runways.csv";
+const COASTLINE_GEOJSON = RAW_DIR + "ne_10m_coastline.geojson";
 
 const ALLOWED_TYPES = new Set([
   "large_airport",
@@ -32,12 +38,12 @@ const ALLOWED_TYPES = new Set([
 ]);
 const ICAO_RE = /^[A-Z]{4}$/;
 
-// Vibe heuristics (§4 — cheap, coarse, documented).
+// Vibe heuristics (§4).
 const MOUNTAIN_MIN_ELEV_FT = 3000;
-// "coastal" proxy: without a coastline dataset we use near-sea-level elevation.
-// Limitation: over-includes low inland airports, under-includes elevated coastal
-// ones. Good enough to *bias* selection (§11), refine later if needed.
-const COASTAL_MAX_ELEV_FT = 50;
+// "coastal": within this many NM of an ocean coastline (Natural Earth 10m).
+// Replaces the old elevation-≤50ft proxy (#6) — trustworthy for cliff-top
+// coastal fields and no longer fooled by low inland river valleys.
+const COASTAL_MAX_DIST_NM = 10;
 const URBAN_RADIUS_NM = 27; // ~50 km to a major city
 
 function fail(message: string): never {
@@ -54,6 +60,13 @@ function ensureInputs(): void {
       `Missing raw input(s) in ${RAW_DIR}: ${missing.join(", ")}.\n` +
         "Download airports.csv and runways.csv from https://ourairports.com/data/\n" +
         "and place them in apps/server/data/raw/. (This script will not fetch them.)",
+    );
+  }
+  if (!existsSync(COASTLINE_GEOJSON)) {
+    fail(
+      `Missing coastline input in ${RAW_DIR}: ne_10m_coastline.geojson.\n` +
+        "Download it from Natural Earth (nvkelso/natural-earth-vector, geojson/\n" +
+        "ne_10m_coastline.geojson) and place it in apps/server/data/raw/.",
     );
   }
 }
@@ -108,11 +121,18 @@ function loadLongestRunways(): Map<string, RunwayLengths> {
   return longest;
 }
 
-/** Coarse vibe tags from elevation + coastline proxy + major-city proximity. */
-function vibeTags(lat: number, lon: number, elevFt: number): VibeTag[] {
+/** Vibe tags from elevation + distance-to-coast + major-city proximity. */
+function vibeTags(
+  lat: number,
+  lon: number,
+  elevFt: number,
+  coast: CoastlineIndex,
+): VibeTag[] {
   const tags: VibeTag[] = [];
   if (elevFt > MOUNTAIN_MIN_ELEV_FT) tags.push("mountain");
-  if (elevFt <= COASTAL_MAX_ELEV_FT) tags.push("coastal");
+  if (distanceToCoastNm(coast, lat, lon) <= COASTAL_MAX_DIST_NM) {
+    tags.push("coastal");
+  }
   for (const city of MAJOR_CITIES) {
     if (greatCircleNm({ lat, lon }, city) <= URBAN_RADIUS_NM) {
       tags.push("urban");
@@ -126,6 +146,7 @@ function main(): void {
   ensureInputs();
 
   const longestRwy = loadLongestRunways();
+  const coastline = buildCoastlineIndex(readFileSync(COASTLINE_GEOJSON, "utf8"));
 
   const rows = parseCsv(readFileSync(AIRPORTS_CSV, "utf8"));
   const header = rows.shift();
@@ -195,7 +216,7 @@ function main(): void {
       longest_rwy_ft: Math.round(rwy.longestFt),
       longest_paved_rwy_ft: Math.round(rwy.longestPavedFt),
       ifr_capable: ifrCapable,
-      vibe_tags: vibeTags(lat, lon, elevFt),
+      vibe_tags: vibeTags(lat, lon, elevFt, coastline),
     });
   }
 

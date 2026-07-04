@@ -23,6 +23,33 @@ export function greatCircleNm(a: LatLon, b: LatLon): number {
 }
 
 /**
+ * Shortest distance from point `p` to the great-circle-ish segment `a`–`b`, in
+ * nautical miles. Planar approximation in a local nm frame centred on `p`
+ * (longitude scaled by cos(lat), 60 NM per degree): exact enough (<0.1%) at the
+ * ≤ tens-of-NM scale this is used for — nearest-coastline tagging — while
+ * avoiding spherical cross-track trig and its `acos` domain traps. Longitude
+ * deltas are wrapped to ±180° so a segment across the antimeridian stays near.
+ */
+export function segmentDistanceNm(p: LatLon, a: LatLon, b: LatLon): number {
+  const cosLat = Math.cos(toRad(p.lat));
+  const wrapLon = (d: number): number => (d > 180 ? d - 360 : d < -180 ? d + 360 : d);
+  const ax = wrapLon(a.lon - p.lon) * cosLat * 60;
+  const ay = (a.lat - p.lat) * 60;
+  const bx = wrapLon(b.lon - p.lon) * cosLat * 60;
+  const by = (b.lat - p.lat) * 60;
+
+  // Closest point on segment ab to the origin (p), clamped to the endpoints.
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? -(ax * dx + ay * dy) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  return Math.sqrt(cx * cx + cy * cy);
+}
+
+/**
  * Bounding box covering everything within `radiusNm` of `center`.
  *
  * Used as a cheap prefilter before the exact great-circle test so the query

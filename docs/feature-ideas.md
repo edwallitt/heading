@@ -63,17 +63,24 @@ the time the app tells the user to fly. AWC serves TAFs from the same keyless
 API; decode the validity window covering the proposed departure and badge the
 destination with the *forecast* category alongside the current one.
 
-### 6. Fix the coastal vibe with real coastline data (~~+ restore Africa~~)
+### 6. Fix the coastal vibe with real coastline data (+ restore Africa) ✅ *(shipped July 2026)*
 
-The ≤50 ft elevation proxy is the weakest vibe tag (inland river valleys
-qualify; cliff-top coastal fields don't). Natural Earth's coastline geojson is
-small and free — bake distance-to-coast at build time in
-`scripts/build-airports.ts` and the tag becomes trustworthy. *(Still open.)*
+Both halves done.
 
-~~While in there: **restore Africa**.~~ ✅ *(shipped July 2026)* — `regions.ts`
-now maps continent `AF → "africa"`; the asset regenerated to +804 African
-fields and the region is a first-class dial. The coastline-data half above is
-still outstanding.
+**Coastline data.** The ≤50 ft elevation proxy is gone. `build-airports.ts`
+now bakes distance-to-coast from Natural Earth's `ne_10m_coastline` (a
+gitignored build input, like the CSVs) via a 1° segment grid
+(`scripts/lib/coastline.ts`) + planar point-to-segment distance
+(`geo.segmentDistanceNm`). "coastal" = within 10 NM of ocean shoreline.
+Flip-set vs the old proxy: +1,467 gained (cliff-top fields it missed —
+Madeira 192 ft, Mauritius 186 ft, the Dalmatian islands), −956 dropped (of
+which 638 were >50 NM inland — Sepik/Fraser/Mackenzie river valleys the proxy
+wrongly tagged). Known limitation: NE 10m under-represents tiny Pacific atolls
+(Rangiroa, Eniwetok), so a handful of atoll strips lose the coastal bias —
+lakeshore fields are also excluded by design (NE coastline is ocean-only).
+
+**Restore Africa.** `regions.ts` maps `AF → "africa"`; the asset regenerated
+to +804 African fields and the region is a first-class dial.
 
 ### 7. Golden hour is one mode — make it a dial
 

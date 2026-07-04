@@ -37,9 +37,9 @@ six dials ─▶ constraints ─▶ candidate pool ─▶ Opus picks + writes �
 | **Time available** | 20 min · 45 min · 1 hr · 2 hr · 3–5 hr · long haul |
 | **Aircraft** | small prop · turboprop · regional jet · airliner |
 | **Legs** | single hop · 2 legs · 3 legs |
-| **Region** | anywhere · N./S. America · Europe · Asia · Oceania · Caribbean |
+| **Region** | anywhere · N./S. America · Europe · Africa · Asia · Oceania · Caribbean |
 | **Flight rules** | any · VFR · IFR |
-| **Vibe** | mountains · coastal · city skylines · surprise me |
+| **Vibe** | mountains · coastal · city skylines · notable · surprise me |
 
 Pick **2 or 3 legs** for an open chain (A→B→C) — a multi-stop tour where you land
 at every stop. The time budget is shared across the whole trip, so each leg is
@@ -174,7 +174,8 @@ pnpm --filter @heading/server export    "turboprop,45min,europe,mountains,VFR"  
 ```
 
 The baked airport/navaid datasets are regenerated with `build-airports` and
-`build-navaids` (raw OurAirports CSVs are git-ignored; the generated JSON is
+`build-navaids` (raw OurAirports CSVs and the Natural Earth `ne_10m_coastline`
+GeoJSON used for the coastal vibe are git-ignored; the generated JSON is
 committed).
 
 ---
