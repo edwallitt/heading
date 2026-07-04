@@ -71,13 +71,15 @@ Both halves done.
 now bakes distance-to-coast from Natural Earth's `ne_10m_coastline` (a
 gitignored build input, like the CSVs) via a 1° segment grid
 (`scripts/lib/coastline.ts`) + planar point-to-segment distance
-(`geo.segmentDistanceNm`). "coastal" = within 10 NM of ocean shoreline.
-Flip-set vs the old proxy: +1,467 gained (cliff-top fields it missed —
-Madeira 192 ft, Mauritius 186 ft, the Dalmatian islands), −956 dropped (of
-which 638 were >50 NM inland — Sepik/Fraser/Mackenzie river valleys the proxy
-wrongly tagged). Known limitation: NE 10m under-represents tiny Pacific atolls
-(Rangiroa, Eniwetok), so a handful of atoll strips lose the coastal bias —
-lakeshore fields are also excluded by design (NE coastline is ocean-only).
+(`geo.segmentDistanceNm`). "coastal" = within 15 NM of ocean shoreline (chosen
+so large lagoon atolls like Rangiroa read coastal while river valleys, which
+sit >30 NM out, stay inland). Flip-set vs the old proxy: +1,711 gained
+(cliff-top fields it missed — Madeira 192 ft, Mauritius 186 ft, the Dalmatian
+islands — plus lagoon atolls), −872 dropped (mostly >50 NM inland —
+Sepik/Fraser/Mackenzie river valleys and outback the proxy wrongly tagged).
+Known limitation: NE 10m omits the tiniest atolls entirely (e.g. Eniwetok), so
+a few strips still lose the coastal bias; lakeshore fields are also excluded by
+design (NE coastline is ocean-only).
 
 **Restore Africa.** `regions.ts` maps `AF → "africa"`; the asset regenerated
 to +804 African fields and the region is a first-class dial.

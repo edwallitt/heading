@@ -42,8 +42,11 @@ const ICAO_RE = /^[A-Z]{4}$/;
 const MOUNTAIN_MIN_ELEV_FT = 3000;
 // "coastal": within this many NM of an ocean coastline (Natural Earth 10m).
 // Replaces the old elevation-≤50ft proxy (#6) — trustworthy for cliff-top
-// coastal fields and no longer fooled by low inland river valleys.
-const COASTAL_MAX_DIST_NM = 10;
+// coastal fields and no longer fooled by low inland river valleys. 15 NM keeps
+// every inland reference (river valleys sit >30 NM out) comfortably clear while
+// recovering large lagoon atolls whose strip sits across the lagoon from the
+// nearest mapped shoreline (e.g. Rangiroa, Tikehau).
+const COASTAL_MAX_DIST_NM = 15;
 const URBAN_RADIUS_NM = 27; // ~50 km to a major city
 
 function fail(message: string): never {
