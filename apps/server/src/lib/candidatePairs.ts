@@ -11,12 +11,20 @@ export interface CandidatePairOptions {
   limit: number;
   /** How many origins to sample from the hard-filtered pool. */
   originSample: number;
+  /**
+   * Recently-shown airport idents (feature #3, server-side anti-repeat). Chains
+   * touching these are *demoted* in every ranking so "Generate again" reliably
+   * surfaces something fresh — never filtered out, so the relaxation ladder and
+   * the honest best-effort pool are unaffected. Empty = a byte-for-byte no-op.
+   */
+  excludeRecent: readonly string[];
 }
 
 const DEFAULTS: CandidatePairOptions = {
   threshold: 3,
   limit: 10,
   originSample: 60,
+  excludeRecent: [],
 };
 
 /** Labels for the relaxation report, applied in fixed order (§3/§4). */
@@ -144,17 +152,24 @@ function buildChains(
   opts: CandidatePairOptions,
   legCount: number,
 ): CandidateChain[] {
+  const recent = new Set(opts.excludeRecent);
   const seeds = runPipeline(c, index, opts); // ranked, deduped leg-1 pairs
   const chains: CandidateChain[] = [];
   for (const seed of seeds) {
-    const chain = extendChain(seed, c, index, legCount);
+    const chain = extendChain(seed, c, index, legCount, recent);
     if (chain) chains.push(chain);
     if (chains.length >= opts.limit) break;
   }
 
-  // Soft rank: vibe match desc, shorter total first, then idents for determinism.
+  // Soft rank: fewer recently-shown airports first (anti-repeat, counted across
+  // the whole chain — origins repeat hardest on single-leg regenerates), then
+  // vibe match desc, shorter total first, then idents for determinism. Empty
+  // recency list → every penalty 0 → identical order to before.
+  const recencyPenalty = (chain: CandidateChain): number =>
+    chain.airports.reduce((n, a) => n + (recent.has(a.ident) ? 1 : 0), 0);
   chains.sort(
     (a, b) =>
+      recencyPenalty(a) - recencyPenalty(b) ||
       b.vibeScore - a.vibeScore ||
       a.totalDistanceNm - b.totalDistanceNm ||
       a.airports[0]!.ident.localeCompare(b.airports[0]!.ident) ||
@@ -173,6 +188,7 @@ function extendChain(
   c: ResolvedConstraints,
   index: AirportIndex,
   legCount: number,
+  recent: ReadonlySet<string>,
 ): CandidateChain | null {
   const airports: Airport[] = [seed.origin, seed.destination];
   const legs: ChainLeg[] = [
@@ -182,7 +198,7 @@ function extendChain(
 
   while (airports.length < legCount + 1) {
     const from = airports[airports.length - 1]!;
-    const next = rankedDestinations(from, c, index).find(
+    const next = rankedDestinations(from, c, index, recent).find(
       (d) => !used.has(d.destination.ident),
     );
     if (!next) return null; // this seed can't reach the requested length
@@ -207,6 +223,7 @@ function rankedDestinations(
   origin: Airport,
   c: ResolvedConstraints,
   index: AirportIndex,
+  recent: ReadonlySet<string> = new Set(),
 ): { destination: Airport; distanceNm: number; vibeScore: number }[] {
   const band = c.distanceBand;
   if (!band) return [];
@@ -227,8 +244,11 @@ function rankedDestinations(
     out.push({ destination: d, distanceNm: dist, vibeScore: vibeScore(c.vibeTags, origin, d) });
   }
 
+  // Prefer fresh next hops (anti-repeat) before vibe/distance; empty set → no-op.
   out.sort(
     (a, b) =>
+      Number(recent.has(a.destination.ident)) -
+        Number(recent.has(b.destination.ident)) ||
       b.vibeScore - a.vibeScore ||
       a.distanceNm - b.distanceNm ||
       a.destination.ident.localeCompare(b.destination.ident),
@@ -264,6 +284,7 @@ function runPipeline(
     .filter((a) => passesAirportFilter(a, c));
   const origins = sample(originPool, opts.originSample);
 
+  const recent = new Set(opts.excludeRecent);
   const pairs: CandidatePair[] = [];
   const seen = new Set<string>(); // collapse reciprocal/duplicate pairs
 
@@ -298,9 +319,15 @@ function runPipeline(
     }
   }
 
-  // Soft rank: vibe match desc, then nearer first, then ident for determinism.
+  // Soft rank: fewer recently-shown endpoints first (anti-repeat), then vibe
+  // match desc, then nearer first, then ident for determinism. Recency leads so
+  // fresh seeds get built into chains; with an empty list every penalty is 0 and
+  // the vibe/distance keys decide exactly as before.
+  const recencyPenalty = (p: CandidatePair): number =>
+    (recent.has(p.origin.ident) ? 1 : 0) + (recent.has(p.destination.ident) ? 1 : 0);
   pairs.sort(
     (a, b) =>
+      recencyPenalty(a) - recencyPenalty(b) ||
       b.vibeScore - a.vibeScore ||
       a.distanceNm - b.distanceNm ||
       a.origin.ident.localeCompare(b.origin.ident) ||

@@ -64,7 +64,9 @@ export async function generateFlight(
 ): Promise<GenerateFlightResult> {
   const constraints = resolveBrief(brief);
   const index = deps.index ?? (await import("../data/index.js")).airportIndex;
-  const { chains, relaxed } = candidateChains(brief, index);
+  const { chains, relaxed } = candidateChains(brief, index, {
+    excludeRecent: deps.excludeRecent ?? [],
+  });
 
   if (chains.length === 0) {
     // Should be rare (e.g. impossible budget, or a leg count too high to chain).

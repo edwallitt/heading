@@ -31,12 +31,21 @@ Waypoints are single-leg only; legs 2–3 always fly direct
 (`generateFlight.ts`). Multi-leg tours are exactly the flights where scenic
 routing matters most.
 
-### 3. Server-side anti-repeat
+### 3. Server-side anti-repeat ✅ *(shipped July 2026)*
 
-`excludeRecent` is only a "please avoid" hint in the prompt. Demote (not
-remove — keep the honest-relaxation philosophy) recently-seen airports in the
-ranking in `lib/candidatePairs.ts`, so "Generate again" reliably feels fresh
-instead of hoping Opus complies.
+`excludeRecent` was only a "please avoid" hint in the prompt. It's now also a
+ranking signal in `lib/candidatePairs.ts`: `CandidatePairOptions.excludeRecent`
+adds a recency penalty as the *top* sort key at all three ranking sites — the
+seed-pair sort in `runPipeline` (so fresh seeds get built into chains), the
+leg-2+ hop sort in `rankedDestinations`, and the whole-chain sort in
+`buildChains` (penalty = count of distinct chain airports in the recent set,
+origins included). Freshness wins the tier; vibe/distance still order *within*
+each recency tier. Kept honest-relaxation: it only reorders — never filters —
+so the relaxation ladder and best-effort pool are untouched, and an empty list
+is a byte-for-byte no-op (all current tests stayed green). The prompt hint
+stays too — ranking + hint together beats either alone, and the demotion is
+what finally makes the *fallback* path (`fallbackChoice` picks `chains[0]`,
+never reads the prompt) fresh on regenerate.
 
 ---
 

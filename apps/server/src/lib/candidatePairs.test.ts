@@ -294,3 +294,71 @@ describe("candidateChains", () => {
     expect(chains.length).toBe(0);
   });
 });
+
+describe("server-side anti-repeat (#3)", () => {
+  it("empty excludeRecent leaves the ranking byte-for-byte unchanged", () => {
+    const index = buildAirportIndex(line("EU", "europe", 4));
+    const b = brief({});
+    const baseline = candidatePairs(b, index);
+    const withEmpty = candidatePairs(b, index, { excludeRecent: [] });
+    const key = (r: typeof baseline) =>
+      r.pairs.map((p) => `${p.origin.ident}->${p.destination.ident}`);
+    expect(key(withEmpty)).toEqual(key(baseline));
+  });
+
+  it("demotes chains touching a recent airport below fresh ones", () => {
+    // 4 airports in a line: pairs are EU0↔EU1, EU1↔EU2, EU2↔EU3. The top pair
+    // by distance/ident is EU0↔EU1; marking EU0 recent should sink any pair
+    // that uses it beneath the fully-fresh EU1↔EU2 / EU2↔EU3 pairs.
+    const index = buildAirportIndex(line("EU", "europe", 4));
+    const { pairs } = candidatePairs(brief({}), index, {
+      excludeRecent: ["EU0"],
+    });
+    const top = pairs[0]!;
+    expect([top.origin.ident, top.destination.ident]).not.toContain("EU0");
+  });
+
+  it("surfaces a fresh chain even when recent airports top the raw ranking", () => {
+    // Vibe=mountain: AAAA↔BBBB is the best pair (vibeScore 2) and would win
+    // outright. Mark both recent → the one-sided-fresh mountain pair (CCCC↔DDDD,
+    // DDDD mountain) must lead despite its lower vibe score. Freshness wins the
+    // tier; vibe still orders within it.
+    const mk = (ident: string, i: number, vibe: VibeTag[]): Airport => ({
+      ident,
+      name: ident,
+      type: "medium_airport",
+      iso_country: "XX",
+      region: "europe",
+      lat: 50 + i * (100 / 60),
+      lon: 0,
+      elev_ft: 0,
+      longest_rwy_ft: 5000,
+      longest_paved_rwy_ft: 5000,
+      ifr_capable: true,
+      vibe_tags: vibe,
+    });
+    const index = buildAirportIndex([
+      mk("AAAA", 0, ["mountain"]),
+      mk("BBBB", 1, ["mountain"]),
+      mk("CCCC", 2, []),
+      mk("DDDD", 3, ["mountain"]),
+    ]);
+    const { pairs } = candidatePairs(brief({ vibe: "mountain" }), index, {
+      excludeRecent: ["AAAA", "BBBB"],
+    });
+    const top = [pairs[0]!.origin.ident, pairs[0]!.destination.ident].sort();
+    expect(top).toEqual(["CCCC", "DDDD"]);
+  });
+
+  it("only reorders — it never filters or changes the relaxation outcome", () => {
+    // Marking every airport recent must not drop a single pair or trigger a
+    // spurious relaxation: anti-repeat is a sort key, never a filter.
+    const index = buildAirportIndex(line("EU", "europe", 4));
+    const baseline = candidatePairs(brief({}), index);
+    const allRecent = candidatePairs(brief({}), index, {
+      excludeRecent: ["EU0", "EU1", "EU2", "EU3"],
+    });
+    expect(allRecent.pairs.length).toBe(baseline.pairs.length);
+    expect(allRecent.relaxed).toEqual(baseline.relaxed);
+  });
+});
