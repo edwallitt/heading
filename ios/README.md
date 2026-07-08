@@ -57,10 +57,16 @@ an Anthropic token server-side, so the backend requires it.
 ### Pointing at a local backend
 
 Running the server locally (`pnpm dev` in the repo root)? In **Settings** set the
-origin to your machine's LAN address, e.g. `http://192.168.1.x:3001`. Note that
-local dev has no `APP_ACCESS_TOKEN` (the gate is off), so the token can be left
-blank. Plain-HTTP LAN URLs work because they're covered by App Transport
-Security's local exception; a public backend must be HTTPS.
+origin to your machine's LAN address as a **numeric IP**, e.g.
+`http://192.168.1.x:3001`. Note that local dev has no `APP_ACCESS_TOKEN` (the gate
+is off, as long as there's no built `apps/web/dist`), so the token can be left
+blank.
+
+Use the numeric IP, not a hostname: App Transport Security exempts plain-HTTP to
+**IP-address literals**, so `http://192.168.1.x:3001` connects with no changes. A
+hostname such as `http://mymac.local:3001` would be *blocked* by ATS (that path
+needs an `NSAllowsLocalNetworking` Info.plist entry, which this app doesn't set).
+A public backend must be HTTPS.
 
 ## Layout
 

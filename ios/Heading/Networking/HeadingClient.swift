@@ -32,7 +32,9 @@ struct HeadingClient {
     let base: URL // …/trpc
     let token: String?
 
-    private var session: URLSession {
+    /// One shared session so requests pool connections and keep-alive — matters
+    /// given the cold-start latency this app is built around. Configured once.
+    private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         // Fly cold-starts (min_machines_running = 0), so be patient on the first
         // request after the machine has stopped.
@@ -40,7 +42,7 @@ struct HeadingClient {
         config.timeoutIntervalForResource = 90
         config.waitsForConnectivity = true
         return URLSession(configuration: config)
-    }
+    }()
 
     // MARK: Public procedures
 
@@ -87,41 +89,48 @@ struct HeadingClient {
         }
     }
 
-    /// Send a request, unwrap the tRPC batch envelope, decode `result.data`.
+    /// Send a request, then map by HTTP status *and* the tRPC batch envelope.
+    /// Checking the status guards against cold-start 5xx responses (often an HTML
+    /// body, which used to surface to the user as raw markup) and against a bare
+    /// `401` that isn't wrapped in the tRPC envelope — a real 401 must always
+    /// route back to the token gate.
     private func run<T: Decodable>(_ request: URLRequest) async throws -> T {
         let data: Data
+        let response: URLResponse
         do {
-            (data, _) = try await session.data(for: request)
-        } catch let error as URLError where error.code == .userAuthenticationRequired {
-            throw HeadingError.unauthorized
+            (data, response) = try await Self.session.data(for: request)
         } catch {
             throw HeadingError.transport(error.localizedDescription)
         }
+        let status = (response as? HTTPURLResponse)?.statusCode
 
-        let decoder = JSONDecoder()
-        let batch: [BatchItem<T>]
-        do {
-            batch = try decoder.decode([BatchItem<T>].self, from: data)
-        } catch {
-            // Surface the server's text if it wasn't JSON we understand.
-            let text = String(data: data, encoding: .utf8) ?? "Unreadable server response."
-            throw HeadingError.transport(text)
-        }
-
-        guard let first = batch.first else {
-            throw HeadingError.transport("Empty response from server.")
-        }
-        if let err = first.error {
-            switch err.data?.httpStatus {
-            case 401: throw HeadingError.unauthorized
-            case 429: throw HeadingError.rateLimited
-            default: throw HeadingError.server(err.message)
+        // Prefer the tRPC envelope when the body is the JSON we expect — its
+        // error carries the authoritative httpStatus, and success rides here too.
+        if let batch = try? JSONDecoder().decode([BatchItem<T>].self, from: data),
+           let first = batch.first {
+            if let err = first.error {
+                throw mapError(status: err.data?.httpStatus ?? status, message: err.message)
+            }
+            if let payload = first.result?.data {
+                return payload
             }
         }
-        guard let payload = first.result?.data else {
-            throw HeadingError.transport("Missing data in server response.")
+
+        // Body wasn't a decodable envelope (HTML error page, empty, gateway error).
+        // Fall back to the HTTP status so the UI shows something sensible.
+        throw mapError(status: status, message: nil)
+    }
+
+    /// Map an HTTP/tRPC status to a user-facing error.
+    private func mapError(status: Int?, message: String?) -> HeadingError {
+        switch status {
+        case 401: return .unauthorized
+        case 429: return .rateLimited
+        case .some(let code) where code >= 500:
+            return .server("The server had a problem (\(code)). It may be waking up — try again in a moment.")
+        default:
+            return .server(message ?? "Unexpected response from the server.")
         }
-        return payload
     }
 }
 

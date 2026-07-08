@@ -19,8 +19,12 @@ enum Permalink {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
 
-        let trimmed = origin.trimmingCharacters(in: .whitespaces)
-        return URL(string: "\(trimmed)/#f=\(b64url)")
+        // Strip trailing slashes so we don't emit "…//#f=" for an origin like
+        // "https://host/".
+        let root = origin
+            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: "\(root)/#f=\(b64url)")
     }
 
     private struct Payload: Encodable {

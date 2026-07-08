@@ -14,6 +14,12 @@ struct BriefBuilderView: View {
             VStack(alignment: .leading, spacing: 22) {
                 header
 
+                if model.isOffline {
+                    Callout(symbol: "wifi.slash", tint: Theme.muted) {
+                        Text("Showing cached options — couldn't reach the server. You can still build a brief; dispatch needs a connection.")
+                    }
+                }
+
                 if let options {
                     timeDial(options)
                     aircraftDial(options)
@@ -35,6 +41,10 @@ struct BriefBuilderView: View {
             .padding(.bottom, 30)
         }
         .scrollIndicators(.hidden)
+        // A soft tap when a dispatch kicks off (only on the rising edge).
+        .sensoryFeedback(trigger: model.isDispatching) { _, dispatching in
+            dispatching ? .impact(weight: .light) : nil
+        }
     }
 
     // MARK: Header

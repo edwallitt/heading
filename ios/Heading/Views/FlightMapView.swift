@@ -10,6 +10,7 @@ import MapKit
 /// SwiftUI `Map` follows the system trait rather than an override.
 struct FlightMapView: View {
     let flight: Flight
+    @State private var showFull = false
 
     var body: some View {
         RouteMap(flight: flight)
@@ -27,6 +28,20 @@ struct FlightMapView: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .padding(10)
             }
+            .overlay(alignment: .topTrailing) {
+                Button { showFull = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.chalk)
+                        .padding(8)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .padding(10)
+                .accessibilityLabel("Expand map")
+            }
+            .fullScreenCover(isPresented: $showFull) {
+                FullRouteMap(flight: flight)
+            }
     }
 
     private var distanceChip: String {
@@ -35,10 +50,36 @@ struct FlightMapView: View {
     }
 }
 
+/// The route on a full-screen, freely explorable map.
+private struct FullRouteMap: View {
+    let flight: Flight
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            RouteMap(flight: flight, interactive: true)
+                .ignoresSafeArea()
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.chalk)
+                    .padding(12)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .padding(16)
+            .accessibilityLabel("Close map")
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
 // MARK: - MKMapView bridge
 
 private struct RouteMap: UIViewRepresentable {
     let flight: Flight
+    /// The inline card map is static (so the ScrollView owns the gestures); the
+    /// full-screen map is freely pan/zoomable.
+    var interactive = false
 
     private static let accent = UIColor(red: 0.925, green: 0.373, blue: 0.643, alpha: 1)
 
@@ -50,6 +91,8 @@ private struct RouteMap: UIViewRepresentable {
         let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
         config.pointOfInterestFilter = .excludingAll
         map.preferredConfiguration = config
+        map.isZoomEnabled = interactive
+        map.isScrollEnabled = interactive
         map.isRotateEnabled = false
         map.isPitchEnabled = false
         map.showsCompass = false
@@ -58,20 +101,25 @@ private struct RouteMap: UIViewRepresentable {
 
         // Route line (origin → each leg's waypoints → arrival).
         let coords = routeCoordinates
-        if coords.count >= 2 {
-            map.addOverlay(MKPolyline(coordinates: coords, count: coords.count))
-        }
+        let polyline = coords.count >= 2 ? MKPolyline(coordinates: coords, count: coords.count) : nil
+        if let polyline { map.addOverlay(polyline) }
 
         // Stops and scenic fixes.
         map.addAnnotations(stopAnnotations)
         map.addAnnotations(fixAnnotations)
 
-        // Frame the whole route with a little breathing room.
-        if let rect = boundingRect(of: coords) {
+        // Frame the whole route. Use the polyline's own bounding rect — MapKit
+        // computes it in a way that handles antimeridian-crossing legs (e.g. a
+        // trans-Pacific hop), which a naive point-union does not.
+        if let polyline {
             map.setVisibleMapRect(
-                rect,
-                edgePadding: UIEdgeInsets(top: 44, left: 32, bottom: 44, right: 32),
+                polyline.boundingMapRect,
+                edgePadding: UIEdgeInsets(top: 48, left: 40, bottom: 48, right: 40),
                 animated: false
+            )
+        } else if let only = coords.first {
+            map.region = MKCoordinateRegion(
+                center: only, latitudinalMeters: 200_000, longitudinalMeters: 200_000
             )
         }
         return map
@@ -95,10 +143,35 @@ private struct RouteMap: UIViewRepresentable {
 
     private var stopAnnotations: [StopAnnotation] {
         guard let first = flight.legs.first else { return [] }
-        var out = [StopAnnotation(icao: first.from_icao, coordinate: .init(latitude: first.from_lat, longitude: first.from_lon), role: .origin)]
+        let wx = weatherByICAO
+        var out = [StopAnnotation(
+            icao: first.from_icao,
+            coordinate: .init(latitude: first.from_lat, longitude: first.from_lon),
+            role: .origin, subtitle: wx[first.from_icao]
+        )]
         for (i, leg) in flight.legs.enumerated() {
             let role: StopAnnotation.Role = (i == flight.legs.count - 1) ? .dest : .mid
-            out.append(StopAnnotation(icao: leg.to_icao, coordinate: .init(latitude: leg.to_lat, longitude: leg.to_lon), role: role))
+            out.append(StopAnnotation(
+                icao: leg.to_icao,
+                coordinate: .init(latitude: leg.to_lat, longitude: leg.to_lon),
+                role: role, subtitle: wx[leg.to_icao]
+            ))
+        }
+        return out
+    }
+
+    /// ICAO → a compact one-line METAR summary for the tap callout.
+    private var weatherByICAO: [String: String] {
+        var out: [String: String] = [:]
+        for w in flight.weather ?? [] {
+            var parts = [w.category]
+            if let kt = w.wind_kt, kt > 0 {
+                let dir = w.wind_dir_deg.map { "\($0)°" } ?? "VRB"
+                parts.append("\(dir) \(kt)kt")
+            }
+            if let vis = w.visibility_sm { parts.append("\(Format.trim(vis)) SM") }
+            if let t = w.temp_c { parts.append("\(Int(t.rounded()))°C") }
+            out[w.icao] = parts.joined(separator: " · ")
         }
         return out
     }
@@ -109,15 +182,6 @@ private struct RouteMap: UIViewRepresentable {
                 FixAnnotation(ident: $0.ident, coordinate: .init(latitude: $0.lat, longitude: $0.lon))
             }
         }
-    }
-
-    private func boundingRect(of coords: [CLLocationCoordinate2D]) -> MKMapRect? {
-        guard !coords.isEmpty else { return nil }
-        let rects = coords.map { c -> MKMapRect in
-            let p = MKMapPoint(c)
-            return MKMapRect(x: p.x, y: p.y, width: 0, height: 0)
-        }
-        return rects.reduce(MKMapRect.null) { $0.union($1) }
     }
 
     // MARK: Delegate
@@ -162,8 +226,14 @@ private final class StopAnnotation: NSObject, MKAnnotation {
     let icao: String
     let coordinate: CLLocationCoordinate2D
     let role: Role
-    init(icao: String, coordinate: CLLocationCoordinate2D, role: Role) {
-        self.icao = icao; self.coordinate = coordinate; self.role = role
+    let title: String?    // ICAO — shown in the tap callout
+    let subtitle: String? // decoded METAR for this stop, if any
+    init(icao: String, coordinate: CLLocationCoordinate2D, role: Role, subtitle: String?) {
+        self.icao = icao
+        self.coordinate = coordinate
+        self.role = role
+        self.title = icao
+        self.subtitle = subtitle
     }
 }
 
@@ -189,7 +259,7 @@ private final class StopAnnotationView: MKAnnotationView {
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
-        canShowCallout = false
+        canShowCallout = true // tap a stop → its ICAO + decoded METAR
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 3
@@ -212,6 +282,9 @@ private final class StopAnnotationView: MKAnnotationView {
 
     func configure(icao: String, role: StopAnnotation.Role) {
         chip.text = icao
+        // Reset the glow up front — this view may be a recycled `.dest` whose dot
+        // still carries a shadow; the shadow lives on `dot.layer`, not `layer`.
+        dot.layer.shadowOpacity = 0
         let size: CGFloat
         switch role {
         case .origin:
@@ -220,13 +293,11 @@ private final class StopAnnotationView: MKAnnotationView {
             dot.layer.borderColor = mutedUI.cgColor
             dot.layer.borderWidth = 2
             chip.textColor = chalkUI
-            layer.shadowOpacity = 0
         case .mid:
             size = 9
             dot.backgroundColor = accentUI
             dot.layer.borderWidth = 0
             chip.textColor = accentUI
-            layer.shadowOpacity = 0
         case .dest:
             size = 13
             dot.backgroundColor = accentUI

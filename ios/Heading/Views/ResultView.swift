@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The dispatched-flight card: route header, map, briefing prose, instrument
 /// readouts, per-leg breakdown, live weather, golden hour and exports.
@@ -7,14 +8,26 @@ struct ResultView: View {
     let flight: Flight
     var isShared: Bool = false
 
+    /// The .pln written to a temp file once (for VFR), so it isn't rewritten on
+    /// every render.
+    @State private var plnFileURL: URL?
+    /// Flips true on appear to fire a one-shot success haptic as the flight lands.
+    @State private var landed = false
+
+    private var routeString: String {
+        flight.stops.map(\.icao).joined(separator: " → ")
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 statusStrip
                 RouteHeader(flight: flight)
+                    .contextMenu { copyButton("Copy route", routeString) }
                 FlightMapView(flight: flight)
 
                 prose
+                    .contextMenu { copyButton("Copy briefing", flight.overview) }
                 statsGrid
 
                 if flight.legs.count > 1 { legBreakdown }
@@ -33,6 +46,18 @@ struct ResultView: View {
         .scrollIndicators(.hidden)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .task { if plnFileURL == nil { plnFileURL = makePlnFile() } }
+        .onAppear { landed = true }
+        .sensoryFeedback(.success, trigger: landed)
+    }
+
+    /// A pasteboard copy action for a context menu.
+    private func copyButton(_ title: String, _ text: String) -> some View {
+        Button {
+            UIPasteboard.general.string = text
+        } label: {
+            Label(title, systemImage: "doc.on.doc")
+        }
     }
 
     // MARK: Status strip
@@ -201,8 +226,8 @@ struct ResultView: View {
                 .buttonStyle(CourseButtonStyle(prominent: false))
             }
 
-            if flight.isVFR, let plnURL {
-                ShareLink(item: plnURL) {
+            if flight.isVFR, let plnFileURL {
+                ShareLink(item: plnFileURL) {
                     Label("Save .pln", systemImage: "doc.badge.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
@@ -225,8 +250,9 @@ struct ResultView: View {
         .padding(.top, 6)
     }
 
-    /// Write the .pln to a temp file so it can be shared to Files/AirDrop.
-    private var plnURL: URL? {
+    /// Write the .pln to a temp file so it can be shared to Files/AirDrop. Called
+    /// once from `.task`, not on every render.
+    private func makePlnFile() -> URL? {
         guard let pln = flight.pln, let name = flight.pln_filename else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         do {

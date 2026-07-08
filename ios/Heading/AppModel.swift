@@ -18,6 +18,10 @@ final class AppModel {
     var connection: Connection = .loading
     var phase: Phase = .idle
 
+    /// True when the dials are the cached copy and a fresh fetch couldn't reach
+    /// the server — the builder still works, but the panel is showing stale data.
+    var isOffline = false
+
     private var lastBrief: Brief?
     private var recent: [String] = [] // anti-repeat, most-recent last, cap 20
     private let recentCap = 20
@@ -38,6 +42,8 @@ final class AppModel {
 
     init(config: AppConfig) {
         self.config = config
+        recent = LocalStore.loadRecent()
+        options = LocalStore.loadOptions()
     }
 
     var isDispatching: Bool { phase == .dispatching }
@@ -45,18 +51,40 @@ final class AppModel {
     // MARK: Connection / options
 
     func loadOptions() async {
-        connection = .loading
         guard let client = config.makeClient() else {
+            // No token yet — but keep any cached dials so they're ready the moment
+            // a token is entered.
             connection = .needsToken(nil)
             return
         }
+        // Seed the builder from cache immediately (instant, offline-friendly);
+        // only show the spinner if we have nothing to show.
+        if options != nil {
+            connection = .ready
+        } else if let cached = LocalStore.loadOptions() {
+            options = cached
+            connection = .ready
+        } else {
+            connection = .loading
+        }
+
         do {
-            options = try await client.fetchOptions()
+            let fresh = try await client.fetchOptions()
+            options = fresh
+            LocalStore.saveOptions(fresh)
+            isOffline = false
             connection = .ready
         } catch HeadingError.unauthorized {
             connection = .needsToken(config.hasToken ? "That token was rejected." : nil)
         } catch {
-            connection = .error(error.localizedDescription)
+            // Network problem: if we already have (cached) dials, stay usable and
+            // just flag it; otherwise surface the error.
+            if options == nil {
+                connection = .error(error.localizedDescription)
+            } else {
+                isOffline = true
+                connection = .ready
+            }
         }
     }
 
@@ -109,6 +137,7 @@ final class AppModel {
     }
 
     private func run(_ brief: Brief) async {
+        guard phase != .dispatching else { return } // no double-spend on fast taps
         guard let client = config.makeClient() else {
             connection = .needsToken(nil)
             return
@@ -141,6 +170,7 @@ final class AppModel {
         if recent.count > recentCap {
             recent = Array(recent.suffix(recentCap))
         }
+        LocalStore.saveRecent(recent)
     }
 
     func clearResult() {
