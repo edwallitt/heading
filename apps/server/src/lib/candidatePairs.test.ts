@@ -28,6 +28,10 @@ function line(
       longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [],
+      rwy_lighted: false,
+      rwy_surface: "asphalt",
+      freqs: [],
       vibe_tags: [...vibe],
     });
   }
@@ -106,6 +110,10 @@ describe("candidatePairs soft ranking", () => {
       longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [],
+      rwy_lighted: false,
+      rwy_surface: "asphalt",
+      freqs: [],
       vibe_tags: vibe,
     });
     const index = buildAirportIndex([
@@ -121,6 +129,46 @@ describe("candidatePairs soft ranking", () => {
     const top = [result.pairs[0]!.origin.ident, result.pairs[0]!.destination.ident];
     expect(top.sort()).toEqual(["AAAA", "BBBB"]);
   });
+
+  // The operational vibes ("hub", "oceanic") are plain airport tags, so they must
+  // flow through the same destination filter as the scenery ones with no
+  // special-casing anywhere in the pipeline.
+  it.each(["hub", "oceanic"] as const)(
+    "filters destinations by the %s operational vibe",
+    (vibe) => {
+      const mk = (ident: string, i: number, vibe_tags: VibeTag[]): Airport => ({
+        ident,
+        name: ident,
+        type: "medium_airport",
+        iso_country: "XX",
+        region: "europe",
+        lat: 50 + i * (100 / 60),
+        lon: 0,
+        elev_ft: 0,
+        longest_rwy_ft: 5000,
+        longest_paved_rwy_ft: 5000,
+        ifr_capable: true,
+        rwy_headings: [],
+        rwy_lighted: false,
+        rwy_surface: "asphalt",
+        freqs: [],
+        vibe_tags,
+      });
+      const index = buildAirportIndex([
+        mk("AAAA", 0, [vibe]),
+        mk("BBBB", 1, [vibe]),
+        mk("CCCC", 2, []),
+        mk("DDDD", 3, [vibe]),
+      ]);
+      const result = candidatePairs(brief({ vibe }), index);
+      expect(result.relaxed).toEqual([]);
+      // Every destination carries the tag; the untagged CCCC is never a target.
+      for (const p of result.pairs) {
+        expect(p.destination.vibe_tags).toContain(vibe);
+      }
+      expect(result.pairs.map((p) => p.destination.ident)).not.toContain("CCCC");
+    },
+  );
 });
 
 /**
@@ -143,6 +191,10 @@ function spacedLine(prefix: string, count: number, stepNm: number): Airport[] {
     longest_rwy_ft: 5000,
     longest_paved_rwy_ft: 5000,
     ifr_capable: true,
+    rwy_headings: [],
+    rwy_lighted: false,
+    rwy_surface: "asphalt",
+    freqs: [],
     vibe_tags: [] as VibeTag[],
   }));
 }
@@ -169,6 +221,10 @@ describe("jet airport hard filters", () => {
     longest_rwy_ft: 9000,
     longest_paved_rwy_ft: 9000,
     ifr_capable: true,
+    rwy_headings: [],
+    rwy_lighted: false,
+    rwy_surface: "asphalt",
+    freqs: [],
     vibe_tags: [],
     ...over,
   });
@@ -242,6 +298,7 @@ describe("jet airport hard filters", () => {
       ...a,
       longest_paved_rwy_ft: 0,
       ifr_capable: false,
+      rwy_surface: "grass" as const,
     }));
     const { pairs } = candidatePairs(brief({}), buildAirportIndex(grassStrips));
     expect(pairs.length).toBe(3);
@@ -335,6 +392,10 @@ describe("server-side anti-repeat (#3)", () => {
       longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [],
+      rwy_lighted: false,
+      rwy_surface: "asphalt",
+      freqs: [],
       vibe_tags: vibe,
     });
     const index = buildAirportIndex([

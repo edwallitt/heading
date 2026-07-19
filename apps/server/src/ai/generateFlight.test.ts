@@ -34,6 +34,10 @@ function line(
       longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [90, 270],
+      rwy_lighted: true,
+      rwy_surface: "asphalt",
+      freqs: [{ type: "TWR", mhz: 118.5 }],
       vibe_tags: [...vibe],
     });
   }
@@ -248,6 +252,28 @@ describe("generateFlight — live weather + golden hour", () => {
     expect(new Date(golden!.sunset_utc).getTime()).toBeGreaterThan(arrive);
   });
 
+  it("attaches baked field data for every stop, in stop order", async () => {
+    const m = mockClient([ok(0)]);
+    // No weather provider: facilities are baked reference data, so unlike
+    // `weather` they must be present even when every live lookup is absent.
+    const res = await generateFlight(brief(), { index, client: m.client });
+
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+
+    const stops = [
+      res.flight.legs[0]!.from_icao,
+      ...res.flight.legs.map((l) => l.to_icao),
+    ];
+    expect(res.flight.weather).toBeUndefined();
+    expect(res.flight.facilities?.map((f) => f.icao)).toEqual(stops);
+    for (const f of res.flight.facilities ?? []) {
+      expect(f.longest_rwy_ft).toBe(5000);
+      expect(f.rwy_surface).toBe("asphalt");
+      expect(f.freqs).toEqual([{ type: "TWR", mhz: 118.5 }]);
+    }
+  });
+
   it("feeds METAR categories and decoded conditions to the model", async () => {
     const m = mockClient([ok(0)]);
     await generateFlight(brief(), {
@@ -296,6 +322,10 @@ describe("generateFlight — live weather + golden hour", () => {
         longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [],
+      rwy_lighted: false,
+      rwy_surface: "asphalt",
+      freqs: [],
         vibe_tags: [] as VibeTag[],
       })),
     );
@@ -324,6 +354,10 @@ describe("demoteBelowMinima", () => {
       longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [],
+      rwy_lighted: false,
+      rwy_surface: "asphalt" as const,
+      freqs: [],
       vibe_tags: [] as VibeTag[],
     }));
     return { airports, legs: [], totalDistanceNm: 0, vibeScore: 0 };
@@ -366,6 +400,10 @@ describe("generateFlight — multi-leg", () => {
       longest_rwy_ft: 5000,
       longest_paved_rwy_ft: 5000,
       ifr_capable: true,
+      rwy_headings: [],
+      rwy_lighted: false,
+      rwy_surface: "asphalt",
+      freqs: [],
       vibe_tags: [] as VibeTag[],
     })),
   );

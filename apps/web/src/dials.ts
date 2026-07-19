@@ -52,6 +52,11 @@ export const VIBE_OPTIONS: DialOption<Vibe>[] = [
   { value: "coastal", label: "Coastal" },
   { value: "urban", label: "City skylines" },
   { value: "notable", label: "Notable" },
+  // Operational vibes — the character of the flying rather than the view. They
+  // are what the jet categories get out of this dial, but stay available to
+  // every aircraft: vibe is the one soft constraint, never gated (see options.ts).
+  { value: "hub", label: "Hub to hub", hint: "Busy instrument fields" },
+  { value: "oceanic", label: "Long overwater", hint: "Island and ocean sectors" },
   { value: "any", label: "Surprise me" },
 ];
 

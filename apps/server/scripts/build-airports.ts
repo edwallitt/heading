@@ -12,7 +12,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { greatCircleNm } from "../src/lib/geo.js";
-import type { Airport, Region, VibeTag } from "../src/types.js";
+import type {
+  Airport,
+  AirportFrequency,
+  FrequencyType,
+  Region,
+  RunwaySurface,
+  VibeTag,
+} from "../src/types.js";
 import { MAJOR_CITIES } from "./lib/cities.js";
 import {
   type CoastlineIndex,
@@ -20,7 +27,9 @@ import {
   distanceToCoastNm,
 } from "./lib/coastline.js";
 import { headerIndex, parseCsv } from "./lib/csv.js";
+import { isOceanic } from "./lib/oceanic.js";
 import { resolveRegion } from "./lib/regions.js";
+import { isPavedSurface, normaliseSurface } from "./lib/surface.js";
 
 const RAW_DIR = fileURLToPath(new URL("../data/raw/", import.meta.url));
 const OUT_PATH = fileURLToPath(
@@ -29,7 +38,12 @@ const OUT_PATH = fileURLToPath(
 
 const AIRPORTS_CSV = RAW_DIR + "airports.csv";
 const RUNWAYS_CSV = RAW_DIR + "runways.csv";
+const FREQUENCIES_CSV = RAW_DIR + "airport-frequencies.csv";
 const COASTLINE_GEOJSON = RAW_DIR + "ne_10m_coastline.geojson";
+
+/** Frequencies are auto-downloaded when absent (same pattern as build-navaids). */
+const FREQUENCIES_URL =
+  "https://davidmegginson.github.io/ourairports-data/airport-frequencies.csv";
 
 const ALLOWED_TYPES = new Set([
   "large_airport",
@@ -48,6 +62,10 @@ const MOUNTAIN_MIN_ELEV_FT = 3000;
 // nearest mapped shoreline (e.g. Rangiroa, Tikehau).
 const COASTAL_MAX_DIST_NM = 15;
 const URBAN_RADIUS_NM = 27; // ~50 km to a major city
+// "hub": a big instrument field with scheduled service — the busy hub-to-hub
+// operational vibe. Gated on runway length too, so a scheduled-service regional
+// strip with a 4,000 ft runway doesn't read as a hub.
+const HUB_MIN_RWY_FT = 7000;
 
 function fail(message: string): never {
   console.error(`\n[build-airports] ${message}\n`);
@@ -74,27 +92,21 @@ function ensureInputs(): void {
   }
 }
 
-/**
- * OurAirports surface strings are free text ("ASP", "asphalt", "CON",
- * "Concrete", "PEM", "paved", "BIT", "TARMAC", …). Match the common paved
- * tokens; anything else (grass, gravel, dirt, water, unknown) counts as
- * unpaved, so the paved length under-reports rather than over-reports.
- */
-const PAVED_SURFACE_RE = /asp|bit|con|pem|tar|paved|brick|macadam/i;
-
-function isPavedSurface(surface: string): boolean {
-  return PAVED_SURFACE_RE.test(surface.trim());
-}
-
-interface RunwayLengths {
+interface RunwayFacts {
   /** Longest open runway of any surface, ft. */
   longestFt: number;
   /** Longest open paved runway, ft; 0 if none. */
   longestPavedFt: number;
+  /** True headings of every open runway end. */
+  headings: Set<number>;
+  /** Any open runway lighted. */
+  lighted: boolean;
+  /** Surface of the longest open runway (tracked alongside `longestFt`). */
+  surface: RunwaySurface;
 }
 
-/** Longest non-closed runway lengths (any surface + paved) per airport ident. */
-function loadLongestRunways(): Map<string, RunwayLengths> {
+/** Runway facts per airport ident, from the non-closed runway rows. */
+function loadRunwayFacts(): Map<string, RunwayFacts> {
   const rows = parseCsv(readFileSync(RUNWAYS_CSV, "utf8"));
   const header = rows.shift();
   if (!header) fail("runways.csv is empty.");
@@ -103,52 +115,166 @@ function loadLongestRunways(): Map<string, RunwayLengths> {
   const lenCol = col.get("length_ft");
   const surfaceCol = col.get("surface");
   const closedCol = col.get("closed");
+  const lightedCol = col.get("lighted");
+  const leHeadingCol = col.get("le_heading_degT");
+  const heHeadingCol = col.get("he_heading_degT");
   if (identCol === undefined || lenCol === undefined) {
     fail("runways.csv missing expected columns (airport_ident, length_ft).");
   }
 
-  const longest = new Map<string, RunwayLengths>();
+  const facts = new Map<string, RunwayFacts>();
   for (const row of rows) {
     if (closedCol !== undefined && row[closedCol] === "1") continue;
     const ident = row[identCol]?.trim();
     const len = Number(row[lenCol]);
     if (!ident || !Number.isFinite(len) || len <= 0) continue;
-    const entry = longest.get(ident) ?? { longestFt: 0, longestPavedFt: 0 };
-    if (len > entry.longestFt) entry.longestFt = len;
+    const entry = facts.get(ident) ?? {
+      longestFt: 0,
+      longestPavedFt: 0,
+      headings: new Set<number>(),
+      lighted: false,
+      surface: "unknown" as RunwaySurface,
+    };
     const surface = surfaceCol !== undefined ? (row[surfaceCol] ?? "") : "";
+    // Surface tracks the LONGEST runway, so it must update in the same step.
+    if (len > entry.longestFt) {
+      entry.longestFt = len;
+      entry.surface = normaliseSurface(surface);
+    }
     if (isPavedSurface(surface) && len > entry.longestPavedFt) {
       entry.longestPavedFt = len;
     }
-    longest.set(ident, entry);
+    if (lightedCol !== undefined && row[lightedCol] === "1") entry.lighted = true;
+    for (const hCol of [leHeadingCol, heHeadingCol]) {
+      if (hCol === undefined) continue;
+      const h = Number(row[hCol]);
+      // OurAirports leaves headings blank on many strips; Number("") is 0, which
+      // would fabricate a north-facing runway, so require a non-empty field.
+      if ((row[hCol] ?? "").trim() === "" || !Number.isFinite(h)) continue;
+      entry.headings.add(Math.round(((h % 360) + 360) % 360));
+    }
+    facts.set(ident, entry);
   }
-  return longest;
+  return facts;
 }
 
-/** Vibe tags from elevation + distance-to-coast + major-city proximity. */
-function vibeTags(
-  lat: number,
-  lon: number,
-  elevFt: number,
-  coast: CoastlineIndex,
-): VibeTag[] {
+/**
+ * COM frequencies worth printing, at most one per type (the first published).
+ * OurAirports' `type` column is free text, so it is normalised against a small
+ * whitelist; everything else (centre, radar, weather stations, ops) is dropped.
+ */
+const FREQ_TYPE_ALIASES: ReadonlyMap<string, FrequencyType> = new Map([
+  ["TWR", "TWR"],
+  ["TOWER", "TWR"],
+  ["ATIS", "ATIS"],
+  ["GND", "GND"],
+  ["GROUND", "GND"],
+  ["CLD", "CLD"],
+  ["DEL", "CLD"],
+  ["CTAF", "CTAF"],
+  ["UNIC", "UNICOM"],
+  ["UNICOM", "UNICOM"],
+  ["AFIS", "AFIS"],
+]);
+
+function loadFrequencies(): Map<string, AirportFrequency[]> {
+  const rows = parseCsv(readFileSync(FREQUENCIES_CSV, "utf8"));
+  const header = rows.shift();
+  if (!header) fail("airport-frequencies.csv is empty.");
+  const col = headerIndex(header);
+  const identCol = col.get("airport_ident");
+  const typeCol = col.get("type");
+  const mhzCol = col.get("frequency_mhz");
+  if (identCol === undefined || typeCol === undefined || mhzCol === undefined) {
+    fail(
+      "airport-frequencies.csv missing expected columns (airport_ident, type, frequency_mhz).",
+    );
+  }
+
+  const out = new Map<string, AirportFrequency[]>();
+  for (const row of rows) {
+    const ident = row[identCol]?.trim();
+    const type = FREQ_TYPE_ALIASES.get((row[typeCol] ?? "").trim().toUpperCase());
+    const mhz = Number(row[mhzCol]);
+    if (!ident || !type) continue;
+    // VHF airband only — the CSV carries a few 0 and out-of-band rows.
+    if (!Number.isFinite(mhz) || mhz < 108 || mhz > 137) continue;
+    const list = out.get(ident) ?? [];
+    if (list.some((f) => f.type === type)) continue; // keep the first per type
+    list.push({ type, mhz: Math.round(mhz * 1000) / 1000 });
+    out.set(ident, list);
+  }
+  // Stable, readable order on the card rather than CSV order.
+  const ORDER: FrequencyType[] = [
+    "ATIS",
+    "CLD",
+    "GND",
+    "TWR",
+    "CTAF",
+    "UNICOM",
+    "AFIS",
+  ];
+  for (const list of out.values()) {
+    list.sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type));
+  }
+  return out;
+}
+
+/** Download the frequencies CSV once if it isn't already present. */
+async function ensureFrequencies(): Promise<void> {
+  if (existsSync(FREQUENCIES_CSV)) return;
+  console.log("[build-airports] airport-frequencies.csv not found — downloading");
+  console.log(`  ${FREQUENCIES_URL}`);
+  let res: Response;
+  try {
+    res = await fetch(FREQUENCIES_URL);
+  } catch (err) {
+    fail(`Download failed: ${(err as Error).message}`);
+  }
+  if (!res.ok) fail(`Download failed: HTTP ${res.status} ${res.statusText}`);
+  writeFileSync(FREQUENCIES_CSV, await res.text(), "utf8");
+  console.log(`[build-airports] saved ${FREQUENCIES_CSV}`);
+}
+
+/** What the vibe heuristics need to classify one airport. */
+interface VibeInput {
+  lat: number;
+  lon: number;
+  elevFt: number;
+  isoCountry: string;
+  isoRegion: string;
+  ifrCapable: boolean;
+  longestRwyFt: number;
+}
+
+/**
+ * Vibe tags: the scenery-led three (elevation, distance-to-coast, major-city
+ * proximity) plus the two operational ones (§3's reserved slot) — "hub" for
+ * busy instrument fields and "oceanic" for island operations.
+ */
+function vibeTags(a: VibeInput, coast: CoastlineIndex): VibeTag[] {
   const tags: VibeTag[] = [];
-  if (elevFt > MOUNTAIN_MIN_ELEV_FT) tags.push("mountain");
-  if (distanceToCoastNm(coast, lat, lon) <= COASTAL_MAX_DIST_NM) {
+  if (a.elevFt > MOUNTAIN_MIN_ELEV_FT) tags.push("mountain");
+  if (distanceToCoastNm(coast, a.lat, a.lon) <= COASTAL_MAX_DIST_NM) {
     tags.push("coastal");
   }
   for (const city of MAJOR_CITIES) {
-    if (greatCircleNm({ lat, lon }, city) <= URBAN_RADIUS_NM) {
+    if (greatCircleNm(a, city) <= URBAN_RADIUS_NM) {
       tags.push("urban");
       break;
     }
   }
+  if (a.ifrCapable && a.longestRwyFt >= HUB_MIN_RWY_FT) tags.push("hub");
+  if (isOceanic(a.isoCountry, a.isoRegion)) tags.push("oceanic");
   return tags;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   ensureInputs();
+  await ensureFrequencies();
 
-  const longestRwy = loadLongestRunways();
+  const runwayFacts = loadRunwayFacts();
+  const frequencies = loadFrequencies();
   const coastline = buildCoastlineIndex(readFileSync(COASTLINE_GEOJSON, "utf8"));
 
   const rows = parseCsv(readFileSync(AIRPORTS_CSV, "utf8"));
@@ -181,7 +307,7 @@ function main(): void {
       dropped.ident++;
       continue;
     }
-    const rwy = longestRwy.get(ident);
+    const rwy = runwayFacts.get(ident);
     if (rwy === undefined) {
       dropped.noRunway++;
       continue;
@@ -219,7 +345,22 @@ function main(): void {
       longest_rwy_ft: Math.round(rwy.longestFt),
       longest_paved_rwy_ft: Math.round(rwy.longestPavedFt),
       ifr_capable: ifrCapable,
-      vibe_tags: vibeTags(lat, lon, elevFt, coastline),
+      rwy_headings: [...rwy.headings].sort((a, b) => a - b),
+      rwy_lighted: rwy.lighted,
+      rwy_surface: rwy.surface,
+      freqs: frequencies.get(ident) ?? [],
+      vibe_tags: vibeTags(
+        {
+          lat,
+          lon,
+          elevFt,
+          isoCountry: get(row, "iso_country"),
+          isoRegion: get(row, "iso_region"),
+          ifrCapable,
+          longestRwyFt: rwy.longestFt,
+        },
+        coastline,
+      ),
     });
   }
 
@@ -236,6 +377,18 @@ function main(): void {
 
   const pavedCount = out.filter((a) => a.longest_paved_rwy_ft > 0).length;
   const ifrCount = out.filter((a) => a.ifr_capable).length;
+  const headingCount = out.filter((a) => a.rwy_headings.length > 0).length;
+  const lightedCount = out.filter((a) => a.rwy_lighted).length;
+  const freqCount = out.filter((a) => a.freqs.length > 0).length;
+  const towerCount = out.filter((a) =>
+    a.freqs.some((f) => f.type === "TWR"),
+  ).length;
+  // Vibe counts under the jet hard-filters (paved + instrument + 5,000 ft), so a
+  // hollow operational vibe — one that would relax to "anywhere" on every jet
+  // brief — shows up here rather than in production.
+  const jetPool = out.filter(
+    (a) => a.ifr_capable && a.longest_paved_rwy_ft >= 5000,
+  );
 
   console.log("\n[build-airports] done.");
   console.log(`  input rows:        ${totalIn}`);
@@ -250,10 +403,15 @@ function main(): void {
   for (const [r, n] of [...byRegion].sort((a, b) => b[1] - a[1])) {
     console.log(`    ${r.padEnd(15)} ${n}`);
   }
+  console.log(`  with rwy headings: ${headingCount}`);
+  console.log(`  lighted runway:    ${lightedCount}`);
+  console.log(`  with COM freqs:    ${freqCount} (tower: ${towerCount})`);
   console.log("  per vibe tag:");
   for (const [t, n] of [...byVibe].sort((a, b) => b[1] - a[1])) {
-    console.log(`    ${t.padEnd(15)} ${n}`);
+    const inJetPool = jetPool.filter((a) => a.vibe_tags.includes(t)).length;
+    console.log(`    ${t.padEnd(15)} ${String(n).padEnd(7)} (jet-eligible: ${inJetPool})`);
   }
+  console.log(`  jet-eligible pool: ${jetPool.length}`);
   console.log(`  written: ${OUT_PATH}\n`);
 }
 

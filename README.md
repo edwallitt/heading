@@ -39,7 +39,7 @@ six dials ─▶ constraints ─▶ candidate pool ─▶ Opus picks + writes �
 | **Legs** | single hop · 2 legs · 3 legs |
 | **Region** | anywhere · N./S. America · Europe · Africa · Asia · Oceania · Caribbean |
 | **Flight rules** | any · VFR · IFR |
-| **Vibe** | mountains · coastal · city skylines · notable · surprise me |
+| **Vibe** | mountains · coastal · city skylines · notable · hub to hub · long overwater · surprise me |
 
 Pick **2 or 3 legs** for an open chain (A→B→C) — a multi-stop tour where you land
 at every stop. The time budget is shared across the whole trip, so each leg is
@@ -48,6 +48,14 @@ shorter (and each carries its own taxi/climb/descent overhead).
 Incompatible combinations grey out live as you pick (an airliner can't fit a
 20-minute flight; three legs won't fit a short budget) — the narrowing rules come
 from the server, never hardcoded in the UI.
+
+The last two vibes are **operational** rather than scenic: they describe the
+character of the flying, not the view, so a jet brief gets something out of the
+dial that "mountains" can't give it. *Hub to hub* selects big instrument fields
+with scheduled service; *long overwater* selects island and archipelago
+operations, where the sector crosses open sea. Like every vibe they stay
+available to all four aircraft — vibe is the one soft constraint, and the
+pipeline relaxes it rather than refusing a brief.
 
 ### Features
 
@@ -71,6 +79,11 @@ from the server, never hardcoded in the UI.
   flight-category badge plus wind/vis/ceiling/temp. The model sees the same
   reports, so the briefing can cite real conditions — and for a VFR brief,
   trips with IFR/LIFR stops are demoted, never silently picked.
+- **Field data** — per stop, the longest runway (named surface when it's
+  something worth knowing — a grass strip, a gravel bar, Barra's beach) and the
+  published COM frequencies to tune: ATIS, clearance, ground, tower. Baked
+  OurAirports data rendered directly by the app, never routed through the model,
+  so the numbers on the card can't be invented.
 - **Golden-hour dispatch** — a suggested sim departure time (pure sun math, no
   API) that touches you down at the destination just as the golden hour begins,
   with the sunset time alongside.
@@ -176,7 +189,9 @@ pnpm --filter @heading/server export    "turboprop,45min,europe,mountains,VFR"  
 The baked airport/navaid datasets are regenerated with `build-airports` and
 `build-navaids` (raw OurAirports CSVs and the Natural Earth `ne_10m_coastline`
 GeoJSON used for the coastal vibe are git-ignored; the generated JSON is
-committed).
+committed). `build-airports` needs `airports.csv` and `runways.csv` placed in
+`apps/server/data/raw/` by hand; it downloads `airport-frequencies.csv` itself
+on first run, the same way `build-navaids` fetches its CSV.
 
 ---
 

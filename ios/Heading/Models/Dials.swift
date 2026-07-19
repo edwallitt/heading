@@ -95,12 +95,19 @@ enum Vibe: String, CaseIterable, Codable, Identifiable, Hashable {
     case coastal
     case urban
     case notable
+    // Operational vibes — the character of the flying rather than the view.
+    // Available to every aircraft, not just the jets: vibe is the one soft
+    // constraint and is never gated (mirrors the web dial and the server).
+    case hub
+    case oceanic
     case any
 
     var id: String { rawValue }
 
     /// Display order differs from raw declaration order to match the web dial.
-    static let displayOrder: [Vibe] = [.mountain, .coastal, .urban, .notable, .any]
+    static let displayOrder: [Vibe] = [
+        .mountain, .coastal, .urban, .notable, .hub, .oceanic, .any,
+    ]
 
     var label: String {
         switch self {
@@ -108,6 +115,8 @@ enum Vibe: String, CaseIterable, Codable, Identifiable, Hashable {
         case .coastal: return "Coastal"
         case .urban: return "City skylines"
         case .notable: return "Notable"
+        case .hub: return "Hub to hub"
+        case .oceanic: return "Long overwater"
         case .any: return "Surprise me"
         }
     }
@@ -117,6 +126,8 @@ enum Vibe: String, CaseIterable, Codable, Identifiable, Hashable {
         case .coastal: return "water.waves"
         case .urban: return "building.2.fill"
         case .notable: return "star.fill"
+        case .hub: return "airplane.departure"
+        case .oceanic: return "globe.americas.fill"
         case .any: return "sparkles"
         }
     }

@@ -79,6 +79,14 @@ const VIBE_ALIASES: Record<string, VibeTag | "any"> = {
   notable: "notable",
   famous: "notable",
   "bucket list": "notable",
+  hub: "hub",
+  hubs: "hub",
+  "hub to hub": "hub",
+  busy: "hub",
+  oceanic: "oceanic",
+  overwater: "oceanic",
+  "long overwater": "oceanic",
+  island: "oceanic",
 };
 
 const RULES_ALIASES: Record<string, Rules | "any"> = {

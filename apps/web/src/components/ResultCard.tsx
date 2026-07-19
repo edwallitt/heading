@@ -50,6 +50,34 @@ function weatherSummary(w: StopWeather): string {
   return parts.join(" · ");
 }
 
+type StopFacility = NonNullable<Flight["facilities"]>[number];
+
+/** Surfaces worth naming on the card; "asphalt"/"concrete" are the unremarkable default. */
+const NOTEWORTHY_SURFACE = new Set([
+  "grass",
+  "gravel",
+  "dirt",
+  "sand",
+  "snow",
+  "water",
+]);
+
+/**
+ * Runway line for a stop: length, plus the surface only when it's interesting.
+ * Lighting is reported only as a POSITIVE — OurAirports' `lighted` column is
+ * unreliable (every Honolulu runway reads unlit), so a missing flag means
+ * "unknown", not "unlit", and the card must never imply otherwise.
+ */
+function runwaySummary(f: StopFacility): string {
+  const parts = [`${f.longest_rwy_ft.toLocaleString()} ft`];
+  if (NOTEWORTHY_SURFACE.has(f.rwy_surface)) parts.push(f.rwy_surface);
+  if (f.rwy_lighted) parts.push("lit");
+  return parts.join(" · ");
+}
+
+/** Frequencies are printed to 3 dp only when they need it: 118.5, 121.975. */
+const formatMhz = (mhz: number) => mhz.toFixed(3).replace(/0+$/, "").replace(/\.$/, ".0");
+
 /** "2026-06-21T19:27:00.000Z" → "19:27Z" (ISO timestamps are always UTC here). */
 const zulu = (iso: string) => `${iso.slice(11, 16)}Z`;
 
@@ -234,6 +262,33 @@ export function ResultCard({ flight, onAgain, isShared }: ResultCardProps) {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        ) : null}
+
+        {flight.facilities?.length ? (
+          <div>
+            <div className="placard mb-2">Field data</div>
+            <div className="flex flex-wrap gap-2">
+              {flight.facilities.map((f) => (
+                <div
+                  key={f.icao}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-line bg-panel-hi/40 px-3 py-2 text-xs"
+                >
+                  <span className="font-instrument text-sm tracking-wide text-chalk">
+                    {f.icao}
+                  </span>
+                  <span className="tabular-nums text-mute">{runwaySummary(f)}</span>
+                  {f.freqs.map((q) => (
+                    <span key={q.type} className="text-mute">
+                      <span className="font-instrument text-[10px] font-semibold tracking-wider text-chalk/70">
+                        {q.type}
+                      </span>{" "}
+                      <span className="tabular-nums">{formatMhz(q.mhz)}</span>
+                    </span>
+                  ))}
+                </div>
+              ))}
             </div>
           </div>
         ) : null}

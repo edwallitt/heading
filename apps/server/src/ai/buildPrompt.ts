@@ -45,6 +45,22 @@ const labelFor: Record<string, string> = {
   widened_region: "the region was widened to anywhere",
 };
 
+/**
+ * A short gloss per vibe, so the model writes to the *intent* rather than to a
+ * bare tag name. The two operational vibes need this most: "hub" and "oceanic"
+ * mean nothing on their own, and their briefs should read as airline dispatch
+ * rather than as scenery notes.
+ */
+const VIBE_GLOSS: Record<string, string> = {
+  mountain: "mountainous terrain and high scenery",
+  coastal: "coastline, shore and island scenery",
+  urban: "city skylines and built-up approaches",
+  notable: "famous, dramatic or bucket-list airfields",
+  hub: "busy hub-to-hub airline operations — big instrument fields, heavy traffic, real-world route pairs",
+  oceanic:
+    "long overwater sectors — island and archipelago operations where the route crosses open sea",
+};
+
 /** Build the system + user prompt for one generate attempt. */
 export function buildPrompt(input: BuildPromptInput): {
   system: string;
@@ -140,7 +156,8 @@ export function buildPrompt(input: BuildPromptInput): {
 
   const user = [
     `Brief: a ${legPhrase} ${brief.timeBand} ${brief.aircraft.replace("_", " ")} trip in ` +
-      `${brief.region.replace("_", " ")}, ${rules} rules, vibe: ${brief.vibe}.`,
+      `${brief.region.replace("_", " ")}, ${rules} rules, vibe: ${brief.vibe}` +
+      `${VIBE_GLOSS[brief.vibe] ? ` (${VIBE_GLOSS[brief.vibe]})` : ""}.`,
     `Aircraft profile: ${aircraft.simbrief_type}, cruise ${aircraft.cruise_tas} kt, ` +
       `ceiling ${aircraft.ceiling_ft} ft, min runway ${aircraft.min_rwy_ft} ft` +
       `${aircraft.paved_rwy_only ? " paved" : ""}.`,

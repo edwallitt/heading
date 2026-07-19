@@ -27,11 +27,58 @@ export type Region =
   | "caribbean";
 
 /**
- * Vibe tags. "mountain"/"coastal"/"urban" are computed at build time (cheap
- * heuristics — §4); "notable" is a curated tag applied at load from a hand-
- * written list (data/notable.ts). Additive per airport.
+ * Vibe tags. "mountain"/"coastal"/"urban"/"hub"/"oceanic" are computed at build
+ * time (cheap heuristics — §4); "notable" is a curated tag applied at load from
+ * a hand-written list (data/notable.ts). Additive per airport.
+ *
+ * "hub" and "oceanic" are the *operational* vibes (§3 reserved a slot for them):
+ * the scenery-led tags give an airliner brief nothing to work with, so these two
+ * describe the character of the *operation* instead of the view.
  */
-export type VibeTag = "mountain" | "coastal" | "urban" | "notable";
+export type VibeTag =
+  | "mountain"
+  | "coastal"
+  | "urban"
+  | "notable"
+  | "hub"
+  | "oceanic";
+
+/**
+ * Ground/approach COM frequencies worth printing on a dispatch card — the ones a
+ * pilot actually tunes. Enroute/centre, radar and weather-station types are
+ * dropped at build time.
+ */
+export type FrequencyType =
+  | "TWR"
+  | "ATIS"
+  | "GND"
+  | "CLD"
+  | "CTAF"
+  | "UNICOM"
+  | "AFIS";
+
+/** One published COM frequency at an airport. */
+export interface AirportFrequency {
+  type: FrequencyType;
+  mhz: number;
+}
+
+/**
+ * Normalised surface of an airport's longest open runway. OurAirports' `surface`
+ * column is free text ("ASP", "asphalt", "GRE", "Grass/Gravel"), so this is a
+ * best-effort bucketing; unrecognised values become "unknown" rather than being
+ * guessed at.
+ */
+export type RunwaySurface =
+  | "asphalt"
+  | "concrete"
+  | "gravel"
+  | "grass"
+  | "dirt"
+  | "sand"
+  | "snow"
+  | "water"
+  | "unknown";
 
 /**
  * Time-available dial (§3). Maps to a block-time budget in minutes.
@@ -75,6 +122,18 @@ export interface Airport {
    * (e.g. KTEB) but never admits a procedure-less strip.
    */
   ifr_capable: boolean;
+  /**
+   * True headings of every open runway END, ascending and deduped — so 09/27
+   * contributes both 90 and 270. Both ends are kept because the usable direction
+   * depends on the wind, which is only known at dispatch time.
+   */
+  rwy_headings: number[];
+  /** True if any open runway is lighted — the gate on a night arrival. */
+  rwy_lighted: boolean;
+  /** Surface of the longest open runway. */
+  rwy_surface: RunwaySurface;
+  /** Published COM frequencies, at most one per type (the first published). */
+  freqs: AirportFrequency[];
   vibe_tags: VibeTag[];
 }
 
@@ -160,6 +219,25 @@ export interface AirportWeather {
 }
 
 /**
+ * Static field data for one stop, in stop order on the flight — the ground
+ * detail a dispatch card can state as fact. Unlike `AirportWeather` this is
+ * baked reference data, never fetched, so it is always present.
+ *
+ * `rwy_lighted` is deliberately NOT surfaced as a negative anywhere in the UI:
+ * OurAirports' `lighted` column is unreliable (it reads 0 for every runway at
+ * Honolulu), so absence of the flag means "unknown", not "unlit".
+ */
+export interface AirportFacility {
+  icao: string;
+  /** Longest open runway of any surface, ft. */
+  longest_rwy_ft: number;
+  rwy_surface: RunwaySurface;
+  rwy_lighted: boolean;
+  /** Published COM frequencies, at most one per type; may be empty. */
+  freqs: AirportFrequency[];
+}
+
+/**
  * Golden-hour dispatch suggestion: sim times (UTC ISO) such that departing at
  * `depart_utc` touches down at the destination just as the golden hour begins.
  * Computed from today's sun at the final stop; absent in polar day/night.
@@ -234,6 +312,8 @@ export interface Flight {
   source: "llm" | "fallback";
   /** Live METARs for the trip's stops, in stop order (stations that reported). */
   weather?: AirportWeather[];
+  /** Baked field data for the trip's stops, in stop order (always complete). */
+  facilities?: AirportFacility[];
   /** Golden-hour timing suggestion for the final stop (absent in polar day/night). */
   golden_hour?: GoldenHour;
   /** SimBrief dispatch URL (Phase 3) — present for every flight. */

@@ -50,6 +50,50 @@ struct AirportWeather: Codable, Hashable, Identifiable {
     var id: String { icao }
 }
 
+struct AirportFrequency: Codable, Hashable, Identifiable {
+    let type: String // ATIS | CLD | GND | TWR | CTAF | UNICOM | AFIS
+    let mhz: Double
+
+    var id: String { type }
+
+    /// "118.5", "121.975" — 3 dp only where the frequency needs it.
+    var formatted: String {
+        var s = String(format: "%.3f", mhz)
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s += "0" }
+        return s
+    }
+}
+
+/// Baked field data for one stop. Unlike `AirportWeather` this ships in the
+/// airport asset rather than being fetched, so it is always complete.
+struct AirportFacility: Codable, Hashable, Identifiable {
+    let icao: String
+    let longest_rwy_ft: Int
+    let rwy_surface: String
+    let rwy_lighted: Bool
+    let freqs: [AirportFrequency]
+
+    var id: String { icao }
+
+    /// Surfaces worth naming; asphalt and concrete are the unremarkable default.
+    private static let noteworthySurface: Set<String> = [
+        "grass", "gravel", "dirt", "sand", "snow", "water",
+    ]
+
+    /// Runway line: length, plus surface only when it's interesting.
+    ///
+    /// Lighting appears only as a POSITIVE — OurAirports' `lighted` column is
+    /// unreliable (every Honolulu runway reads unlit), so a missing flag means
+    /// "unknown", not "unlit", and the card must never imply otherwise.
+    var runwaySummary: String {
+        var parts = ["\(longest_rwy_ft.formatted()) ft"]
+        if Self.noteworthySurface.contains(rwy_surface) { parts.append(rwy_surface) }
+        if rwy_lighted { parts.append("lit") }
+        return parts.joined(separator: " · ")
+    }
+}
+
 struct GoldenHour: Codable, Hashable {
     let dest_icao: String
     let depart_utc: String
@@ -69,6 +113,7 @@ struct Flight: Codable, Hashable, Identifiable {
     let relaxed: [String]
     let source: String // "llm" | "fallback"
     let weather: [AirportWeather]?
+    let facilities: [AirportFacility]?
     let golden_hour: GoldenHour?
     let simbrief_url: String?
     var pln: String?

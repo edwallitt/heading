@@ -135,9 +135,11 @@ An optional "spice" dial using data that's already there:
 
 - **Short-field** — destination `longest_rwy_ft` near the aircraft minimum.
 - **High & hot** — field elevation + temperature from the METAR.
-- **Crosswind work** — needs runway headings baked from `runways.csv`
-  (currently only lengths are kept), then compute the crosswind component from
-  live wind.
+- **Crosswind work** — runway headings are now baked (`Airport.rwy_headings`,
+  both ends of every open runway, July 2026), so this is just the crosswind
+  component from live wind against the best-aligned runway. Note OurAirports
+  only publishes headings for ~7,300 of the 12,997 baked fields, so the
+  modifier has to degrade gracefully where they're missing.
 
 The briefing prose gets to say "gusting 22 across runway 27 — earn it."
 

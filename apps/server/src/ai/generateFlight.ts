@@ -10,6 +10,7 @@ import { eveningSun } from "../lib/sun.js";
 import type { WeatherProvider } from "../weather/metar.js";
 import type {
   Airport,
+  AirportFacility,
   AirportWeather,
   Brief,
   Flight,
@@ -320,6 +321,16 @@ function enrich(
     .filter((w): w is AirportWeather => w !== undefined);
   const golden = goldenHourFor(stops[stops.length - 1]!, blockMin, now);
 
+  // Baked field data per stop — runway and radio detail the card can state as
+  // fact. Always complete (it ships in the airport asset), unlike weather.
+  const facilities: AirportFacility[] = stops.map((a) => ({
+    icao: a.ident,
+    longest_rwy_ft: a.longest_rwy_ft,
+    rwy_surface: a.rwy_surface,
+    rwy_lighted: a.rwy_lighted,
+    freqs: a.freqs,
+  }));
+
   return {
     brief,
     aircraft_type: aircraft.simbrief_type,
@@ -332,6 +343,7 @@ function enrich(
     relaxed,
     source: choice.source,
     ...(stopWeather.length > 0 ? { weather: stopWeather } : {}),
+    facilities,
     ...(golden ? { golden_hour: golden } : {}),
   };
 }

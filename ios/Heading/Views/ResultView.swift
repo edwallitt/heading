@@ -34,6 +34,9 @@ struct ResultView: View {
                 if !sceneryLine.isEmpty { viaLine }
 
                 if let weather = flight.weather, !weather.isEmpty { weatherSection(weather) }
+                if let facilities = flight.facilities, !facilities.isEmpty {
+                    facilitiesSection(facilities)
+                }
                 if let golden = flight.golden_hour { goldenHour(golden) }
                 if !flight.relaxed.isEmpty { relaxedNotes }
 
@@ -180,6 +183,15 @@ struct ResultView: View {
         VStack(alignment: .leading, spacing: 10) {
             Placard(text: "Live weather")
             ForEach(weather) { WeatherChip(weather: $0) }
+        }
+    }
+
+    // MARK: Field data
+
+    private func facilitiesSection(_ facilities: [AirportFacility]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Placard(text: "Field data")
+            ForEach(facilities) { FacilityChip(facility: $0) }
         }
     }
 
@@ -373,6 +385,42 @@ private struct WeatherChip: View {
         let dir = weather.wind_dir_deg.map { "\($0)°" } ?? "VRB"
         let gust = weather.gust_kt.map { "G\($0)" } ?? ""
         return "\(dir) \(kt)\(gust) kt"
+    }
+}
+
+// MARK: - Facility chip
+
+private struct FacilityChip: View {
+    let facility: AirportFacility
+
+    var body: some View {
+        Panel {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(facility.icao)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Theme.chalk)
+                    Text(facility.runwaySummary)
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                }
+                Spacer()
+                if !facility.freqs.isEmpty {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        ForEach(facility.freqs) { freq in
+                            HStack(spacing: 6) {
+                                Text(freq.type)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(Theme.chalk.opacity(0.7))
+                                Text(freq.formatted)
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

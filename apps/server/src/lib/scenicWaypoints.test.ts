@@ -21,6 +21,10 @@ const apt = (ident: string, lat: number, lon: number): Airport => ({
   longest_rwy_ft: 5000,
   longest_paved_rwy_ft: 5000,
   ifr_capable: true,
+  rwy_headings: [],
+  rwy_lighted: false,
+  rwy_surface: "asphalt",
+  freqs: [],
   vibe_tags: [],
 });
 
